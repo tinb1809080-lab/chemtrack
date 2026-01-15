@@ -1,203 +1,457 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Chemical, UserRole, AuditLog, Transaction, PhysicalState } from './types';
-import { INITIAL_CHEMICALS } from './constants';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Chemical, UserRole, AuditLog, PhysicalState, ChemicalLot } from './types';
+import { INITIAL_CHEMICALS, CATEGORIES } from './constants';
 import Dashboard from './components/Dashboard';
 import ChemicalList from './components/ChemicalList';
 import ChemicalForm from './components/ChemicalForm';
+import LotForm from './components/LotForm';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SafetyAdvisor from './components/SafetyAdvisor';
 
 const App: React.FC = () => {
   const [chemicals, setChemicals] = useState<Chemical[]>(INITIAL_CHEMICALS);
+  const [history, setHistory] = useState<Chemical[][]>([]); 
+  const [redoStack, setRedoStack] = useState<Chemical[][]>([]); 
   const [userRole, setUserRole] = useState<UserRole>(UserRole.ADMIN);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'reports' | 'logs' | 'advisor'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor'>('inventory');
+  const [subTab, setSubTab] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedState, setSelectedState] = useState<'All' | PhysicalState>('All');
+  
+  // Log filtering
+  const [logFilter, setLogFilter] = useState<'ALL' | 'USAGE' | 'MASTER' | 'INVENTORY'>('ALL');
+
   const [showForm, setShowForm] = useState(false);
+  const [showLotForm, setShowLotForm] = useState(false);
+  const [initialFormStatus, setInitialFormStatus] = useState<ChemicalLot['status']>('RESERVED');
   const [editingChemical, setEditingChemical] = useState<Chemical | undefined>(undefined);
+  
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' | 'undo' | 'redo' } | null>(null);
 
-  // Filtering Logic
-  const filteredChemicals = useMemo(() => {
-    return chemicals.filter(c => {
-      const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           c.casNumber.includes(searchQuery) ||
-                           c.code.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = selectedCategory === 'All' || c.category === selectedCategory;
-      const matchesState = selectedState === 'All' || c.state === selectedState;
-      return matchesSearch && matchesCategory && matchesState;
-    });
-  }, [chemicals, searchQuery, selectedCategory, selectedState]);
+  const saveToHistory = useCallback(() => {
+    setHistory(prev => [JSON.parse(JSON.stringify(chemicals)), ...prev].slice(0, 20));
+    setRedoStack([]); 
+  }, [chemicals]);
 
-  const addLog = (action: AuditLog['action'], entityId: string, details: string) => {
+  const handleUndo = useCallback(() => {
+    if (history.length > 0) {
+      const currentState = JSON.parse(JSON.stringify(chemicals));
+      const previousState = history[0];
+      setRedoStack(prev => [currentState, ...prev]);
+      setChemicals(previousState);
+      setHistory(prev => prev.slice(1));
+      showToast('Đã hoàn tác thao tác', 'undo');
+      addLog('STATUS_CHANGE', 'system', 'Hoàn tác (Undo)');
+    }
+  }, [history, chemicals]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length > 0) {
+      const currentState = JSON.parse(JSON.stringify(chemicals));
+      const nextState = redoStack[0];
+      setHistory(prev => [currentState, ...prev]);
+      setChemicals(nextState);
+      setRedoStack(prev => prev.slice(1));
+      showToast('Đã làm lại thao tác', 'redo');
+      addLog('STATUS_CHANGE', 'system', 'Làm lại (Redo)');
+    }
+  }, [redoStack, chemicals]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey)) {
+        if (e.key === 'z') {
+          if (e.shiftKey) { e.preventDefault(); handleRedo(); }
+          else { e.preventDefault(); handleUndo(); }
+        } else if (e.key === 'y') { e.preventDefault(); handleRedo(); }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  const showToast = (message: string, type: 'info' | 'success' | 'undo' | 'redo' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  useEffect(() => {
+    const today = new Date();
+    setChemicals(prev => prev.map(c => ({
+      ...c,
+      lots: c.lots.map(l => {
+        if (l.status !== 'EXPIRED' && l.status !== 'DISPOSED' && l.status !== 'CONSUMED') {
+          if (new Date(l.expiryDate) < today) {
+            return { ...l, status: 'EXPIRED' as const };
+          }
+        }
+        return l;
+      })
+    })));
+  }, []);
+
+  const addLog = (
+    action: AuditLog['action'], 
+    entityId: string, 
+    details: string, 
+    chemicalName?: string, 
+    lotNumber?: string,
+    amount?: number,
+    unit?: string
+  ) => {
     const newLog: AuditLog = {
       id: Math.random().toString(36).substr(2, 9),
       timestamp: new Date().toISOString(),
-      userId: 'user-01',
-      userName: 'Current User',
+      userId: 'tech-01',
+      userName: 'KTV Trưởng',
       action,
       entityId,
+      chemicalName,
+      lotNumber,
+      amount,
+      unit,
       details
     };
     setAuditLogs(prev => [newLog, ...prev]);
   };
 
-  const handleSaveChemical = (chemical: Chemical) => {
-    if (editingChemical) {
-      setChemicals(prev => prev.map(c => c.id === chemical.id ? chemical : c));
-      addLog('UPDATE', chemical.id, `Updated chemical ${chemical.name}`);
-    } else {
-      const newChem = { ...chemical, id: Math.random().toString(36).substr(2, 9) };
-      setChemicals(prev => [...prev, newChem]);
-      addLog('CREATE', newChem.id, `Added new chemical ${newChem.name}`);
-    }
-    setShowForm(false);
-    setEditingChemical(undefined);
-  };
+  const filteredChemicals = useMemo(() => {
+    return chemicals.filter(c => {
+      const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                           c.casNumber.includes(searchQuery) ||
+                           c.code.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = selectedCategory === 'All' || c.category === selectedCategory;
+      const matchesSubTab = subTab === 'all' || 
+                           (subTab === 'solid' && c.state === PhysicalState.SOLID) ||
+                           (subTab === 'liquid' && c.state === PhysicalState.LIQUID) ||
+                           (subTab === 'hazardous' && (c.nfpa.health >= 3 || c.nfpa.flammability >= 3));
 
-  const handleDeleteChemical = (id: string) => {
-    if (userRole !== UserRole.ADMIN) {
-      alert("Only Admins can delete chemicals.");
-      return;
-    }
-    const chem = chemicals.find(c => c.id === id);
-    if (window.confirm(`Are you sure you want to delete ${chem?.name}?`)) {
-      setChemicals(prev => prev.filter(c => c.id !== id));
-      addLog('DELETE', id, `Deleted chemical ${chem?.name}`);
-    }
-  };
+      const hasCorrectStatus = c.lots.some(l => {
+        if (activeTab === 'inventory') return l.status === 'RESERVED' || l.status === 'IN_USE';
+        if (activeTab === 'consumed') return l.status === 'CONSUMED';
+        if (activeTab === 'disposal') return l.status === 'EXPIRED' || l.status === 'DISPOSED';
+        return true;
+      });
 
-  const handleStockAction = (id: string, type: 'IN' | 'OUT', amount: number, date: string) => {
+      return matchesSearch && matchesCategory && hasCorrectStatus && matchesSubTab;
+    }).map(c => ({
+      ...c,
+      lots: c.lots.filter(l => {
+        if (activeTab === 'inventory') return l.status === 'RESERVED' || l.status === 'IN_USE';
+        if (activeTab === 'consumed') return l.status === 'CONSUMED';
+        if (activeTab === 'disposal') return l.status === 'EXPIRED' || l.status === 'DISPOSED';
+        return true;
+      })
+    })).filter(c => c.lots.length > 0);
+  }, [chemicals, searchQuery, selectedCategory, activeTab, subTab]);
+
+  const filteredLogs = useMemo(() => {
+    return auditLogs.filter(log => {
+      if (logFilter === 'ALL') return true;
+      if (logFilter === 'USAGE') return log.action === 'LOT_USAGE' || log.action === 'OPEN_LOT' || log.action === 'CONSUME_ALL';
+      if (logFilter === 'MASTER') return log.action === 'CREATE' || log.action === 'UPDATE' || log.action === 'DELETE';
+      if (logFilter === 'INVENTORY') return log.action === 'ADD_LOT' || log.action === 'LOT_STOCK_IN';
+      return true;
+    });
+  }, [auditLogs, logFilter]);
+
+  const handleLotAction = (chemId: string, lotId: string, action: 'OPEN' | 'USAGE' | 'STOCK_IN' | 'DISPOSE' | 'CONSUME_ALL', amount?: number, customDate?: string) => {
+    saveToHistory();
+    const today = new Date().toISOString().split('T')[0];
+    const targetDate = customDate || today;
+    let details = '';
+    let currentChemName = '';
+    let currentLotNum = '';
+    let currentUnit = '';
+
     setChemicals(prev => prev.map(c => {
-      if (c.id === id) {
-        const newStock = type === 'IN' ? c.stock + amount : c.stock - amount;
-        return { ...c, stock: Math.max(0, newStock) };
+      if (c.id === chemId) {
+        currentChemName = c.name;
+        return {
+          ...c,
+          lots: c.lots.map(l => {
+            if (l.id === lotId) {
+              currentLotNum = l.lotNumber;
+              currentUnit = l.unit;
+              if (action === 'OPEN') {
+                details = `Mở nắp hóa chất vào ngày ${targetDate}`;
+                return { ...l, openedDate: targetDate, status: 'IN_USE' as const, paoDays: c.defaultPaoDays };
+              }
+              if (action === 'USAGE' && amount) {
+                const newQty = Math.max(0, l.quantity - amount);
+                details = `Sử dụng ${amount} ${l.unit} vào ngày ${targetDate}`;
+                if (newQty === 0) return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: targetDate };
+                return { ...l, quantity: newQty, lastUsedDate: targetDate };
+              }
+              if (action === 'STOCK_IN' && amount) {
+                details = `Nhập thêm/Hoàn trả ${amount} ${l.unit} vào ngày ${targetDate}`;
+                const newQty = l.quantity + amount;
+                let newStatus = l.status;
+                if (l.status === 'CONSUMED' && newQty > 0) {
+                   newStatus = l.openedDate ? 'IN_USE' : 'RESERVED';
+                }
+                return { ...l, quantity: newQty, status: newStatus, lastUsedDate: targetDate };
+              }
+              if (action === 'DISPOSE') {
+                details = `Chuyển sang mục Chờ thanh lý vào ngày ${targetDate}`;
+                return { ...l, status: 'DISPOSED' as const };
+              }
+              if (action === 'CONSUME_ALL') {
+                details = `Xác nhận đã dùng hết vào ngày ${targetDate}`;
+                return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: targetDate };
+              }
+            }
+            return l;
+          })
+        };
       }
       return c;
     }));
+
+    const logAction = 
+      action === 'DISPOSE' ? 'STATUS_CHANGE' : 
+      action === 'STOCK_IN' ? 'LOT_STOCK_IN' : 
+      action === 'CONSUME_ALL' ? 'CONSUME_ALL' : 'LOT_USAGE';
+
+    addLog(logAction as any, lotId, details, currentChemName, currentLotNum, amount, currentUnit);
+    if (action === 'CONSUME_ALL') showToast('Đã xác nhận dùng hết lô hàng', 'success');
+  };
+
+  const handleAddLot = (chemId: string, newLot: ChemicalLot) => {
+    saveToHistory();
+    const chem = chemicals.find(c => c.id === chemId);
+    setChemicals(prev => prev.map(c => {
+      if (c.id === chemId) {
+        return { ...c, lots: [...c.lots, newLot] };
+      }
+      return c;
+    }));
+    addLog('ADD_LOT', newLot.id, `Nhập mới lô hàng: ${newLot.lotNumber}`, chem?.name, newLot.lotNumber, newLot.quantity, newLot.unit);
+    setShowLotForm(false);
+    showToast('Đã nhập kho số lô mới');
+  };
+
+  const handleSaveChemical = (chemical: Chemical) => {
+    saveToHistory();
+    if (editingChemical) {
+      setChemicals(prev => prev.map(c => c.id === chemical.id ? chemical : c));
+      addLog('UPDATE', chemical.id, `Cập nhật thông tin Master`, chemical.name);
+    } else {
+      const newChem = { ...chemical, id: Math.random().toString(36).substr(2, 9) };
+      setChemicals(prev => [...prev, newChem]);
+      addLog('CREATE', newChem.id, `Tạo mới hóa chất trong danh mục`, newChem.name);
+      // Log the initial lot as well
+      if (newChem.lots.length > 0) {
+        const firstLot = newChem.lots[0];
+        addLog('ADD_LOT', firstLot.id, `Lô hàng khởi tạo: ${firstLot.lotNumber}`, newChem.name, firstLot.lotNumber, firstLot.quantity, firstLot.unit);
+      }
+    }
+    setShowForm(false);
+    setEditingChemical(undefined);
+    showToast('Đã lưu thành công');
+  };
+
+  const handleDelete = (id: string) => {
+    saveToHistory();
     const chem = chemicals.find(c => c.id === id);
-    addLog(
-      type === 'IN' ? 'STOCK_IN' : 'STOCK_OUT', 
-      id, 
-      `${type === 'IN' ? 'Added' : 'Removed'} ${amount} ${chem?.unit} of ${chem?.name} (Effective date: ${date})`
-    );
+    setChemicals(prev => prev.filter(c => c.id !== id));
+    addLog('DELETE', id, 'Xóa hóa chất hoàn toàn khỏi hệ thống', chem?.name);
+    showToast('Đã xóa dữ liệu');
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-      
+    <div className="flex h-screen bg-gray-50 overflow-hidden font-sans text-slate-900">
+      <Sidebar activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); setSubTab('all'); }} subTab={subTab} setSubTab={setSubTab} />
       <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-        <Header 
-          userRole={userRole} 
-          setUserRole={setUserRole} 
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-        />
+        <Header userRole={userRole} setUserRole={setUserRole} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+        
+        {/* Undo/Redo Buttons */}
+        {(history.length > 0 || redoStack.length > 0) && (
+          <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
+             {redoStack.length > 0 && (
+                <button onClick={handleRedo} className="bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-indigo-700 transition-all border border-indigo-400 group">
+                  <i className="fas fa-redo"></i> Làm lại (Ctrl+Y)
+                  <span className="bg-indigo-500 px-1.5 py-0.5 rounded text-[10px] ml-1">{redoStack.length}</span>
+                </button>
+             )}
+             {history.length > 0 && (
+                <button onClick={handleUndo} className="bg-slate-800 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-slate-700 transition-all border border-slate-600 group">
+                  <i className="fas fa-undo"></i> Hoàn tác (Ctrl+Z)
+                  <span className="bg-slate-600 px-1.5 py-0.5 rounded text-[10px] ml-1">{history.length}</span>
+                </button>
+             )}
+          </div>
+        )}
+
+        {toast && (
+          <div className={`fixed top-20 right-8 z-50 animate-in slide-in-from-right-10 px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 border font-bold text-sm ${
+            toast.type === 'undo' ? 'bg-indigo-600 text-white' : toast.type === 'redo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-800'
+          }`}>
+            <i className={`fas ${toast.type === 'undo' ? 'fa-history' : toast.type === 'redo' ? 'fa-redo' : 'fa-check-circle text-emerald-500'}`}></i>
+            {toast.message}
+          </div>
+        )}
 
         <div className="p-8 max-w-7xl mx-auto w-full">
-          {activeTab === 'inventory' && (
+          {(activeTab === 'inventory' || activeTab === 'consumed' || activeTab === 'disposal') && (
             <>
-              <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold text-gray-800">Inventory Management</h1>
+              <div className="flex justify-between items-end mb-6">
+                <div>
+                   <h1 className="text-3xl font-black text-slate-800 tracking-tight">
+                     {activeTab === 'inventory' ? 'Kho Hóa chất' : 
+                      activeTab === 'consumed' ? 'Đã tiêu thụ' : 'Khu vực Thanh lý'}
+                   </h1>
+                </div>
                 <div className="flex space-x-2">
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="border rounded-md px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="All">All Categories</option>
-                    {Array.from(new Set(chemicals.map(c => c.category))).map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
+                  <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 bg-white text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm">
+                    <option value="All">Danh mục: Tất cả</option>
+                    {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
-                  <select
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value as 'All' | PhysicalState)}
-                    className="border rounded-md px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="All">All States</option>
-                    <option value={PhysicalState.SOLID}>{PhysicalState.SOLID}</option>
-                    <option value={PhysicalState.LIQUID}>{PhysicalState.LIQUID}</option>
-                    <option value={PhysicalState.GAS}>{PhysicalState.GAS}</option>
-                  </select>
-                  {userRole !== UserRole.VIEWER && (
-                    <button
-                      onClick={() => setShowForm(true)}
-                      className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition flex items-center gap-2"
-                    >
-                      <i className="fas fa-plus"></i> New Chemical
+                  {activeTab === 'inventory' && (
+                    <button onClick={() => { setInitialFormStatus('RESERVED'); setShowForm(true); }} className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 font-bold shadow-md transition-all active:scale-95">
+                      <i className="fas fa-plus mr-2"></i>Thêm hóa chất
                     </button>
                   )}
                 </div>
               </div>
-
               <Dashboard chemicals={chemicals} />
-              
               <ChemicalList 
                 chemicals={filteredChemicals} 
-                userRole={userRole}
-                onEdit={(c) => { setEditingChemical(c); setShowForm(true); }}
-                onDelete={handleDeleteChemical}
-                onStockAction={handleStockAction}
+                auditLogs={auditLogs}
+                userRole={userRole} 
+                onEdit={(c) => { setEditingChemical(c); setShowForm(true); }} 
+                onDelete={handleDelete} 
+                onLotAction={handleLotAction}
+                onAddLot={(chemId) => {
+                  const chem = chemicals.find(c => c.id === chemId);
+                  setEditingChemical(chem);
+                  setShowLotForm(true);
+                }}
               />
             </>
           )}
-
           {activeTab === 'logs' && (
-            <div className="bg-white rounded-xl shadow-sm border p-6">
-              <h1 className="text-2xl font-bold mb-6">Audit Logs</h1>
-              <div className="space-y-4">
-                {auditLogs.length === 0 ? (
-                  <p className="text-gray-500 italic">No logs recorded yet.</p>
-                ) : (
-                  auditLogs.map(log => (
-                    <div key={log.id} className="flex items-start space-x-4 p-3 border-b border-gray-50 hover:bg-gray-50 rounded transition">
-                      <div className={`mt-1 w-2 h-2 rounded-full ${log.action === 'DELETE' ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                      <div className="flex-1">
-                        <div className="flex justify-between">
-                          <span className="font-semibold text-gray-800">{log.action}</span>
-                          <span className="text-xs text-gray-400">{new Date(log.timestamp).toLocaleString()}</span>
-                        </div>
-                        <p className="text-sm text-gray-600">{log.details}</p>
-                        <p className="text-xs text-gray-400 mt-1">Performed by: {log.userName}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+             <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500">
+                <div className="bg-slate-900 p-6 flex justify-between items-center">
+                   <div>
+                     <h1 className="text-2xl font-black text-white flex items-center gap-3">
+                        <i className="fas fa-history text-indigo-400"></i> Audit Trail
+                     </h1>
+                     <p className="text-slate-400 text-xs mt-1 font-medium italic">Ghi lại toàn bộ lịch sử biến động dữ liệu hệ thống</p>
+                   </div>
+                   
+                   <div className="flex bg-slate-800 p-1 rounded-xl gap-1">
+                      {[
+                        { id: 'ALL', label: 'Tất cả' },
+                        { id: 'USAGE', label: 'Sử dụng' },
+                        { id: 'INVENTORY', label: 'Kho vận' },
+                        { id: 'MASTER', label: 'Dữ liệu gốc' }
+                      ].map(tab => (
+                        <button 
+                          key={tab.id}
+                          onClick={() => setLogFilter(tab.id as any)}
+                          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                            logFilter === tab.id ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                   </div>
+                </div>
 
-          {activeTab === 'advisor' && <SafetyAdvisor chemicals={chemicals} />}
-          
-          {activeTab === 'reports' && (
-             <div className="bg-white rounded-xl shadow-sm border p-6 flex flex-col items-center justify-center min-h-[400px]">
-                <i className="fas fa-file-invoice text-6xl text-gray-200 mb-4"></i>
-                <h2 className="text-xl font-semibold text-gray-700">Export Reports</h2>
-                <p className="text-gray-500 mb-6">Download your inventory data in Excel or PDF format.</p>
-                <div className="flex space-x-4">
-                   <button className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center gap-2">
-                      <i className="fas fa-file-excel"></i> Export Excel
-                   </button>
-                   <button className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 flex items-center gap-2">
-                      <i className="fas fa-file-pdf"></i> Export PDF
-                   </button>
+                <div className="p-6">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 text-[10px] uppercase text-slate-400 font-black border-b">
+                        <tr>
+                          <th className="px-6 py-4">Thời gian</th>
+                          <th className="px-6 py-4">Hóa chất / Lô</th>
+                          <th className="px-6 py-4">Hành động</th>
+                          <th className="px-6 py-4">Chi tiết thay đổi</th>
+                          <th className="px-6 py-4">Người thực hiện</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {filteredLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-20 text-center text-slate-400 font-bold italic">
+                               <i className="fas fa-folder-open text-4xl mb-3 block opacity-20"></i>
+                               Không tìm thấy nhật ký trong danh mục này
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredLogs.map(log => {
+                            const isUsage = log.action === 'LOT_USAGE' || log.action === 'OPEN_LOT' || log.action === 'CONSUME_ALL';
+                            const isInventory = log.action === 'ADD_LOT' || log.action === 'LOT_STOCK_IN';
+                            const isMaster = log.action === 'CREATE' || log.action === 'UPDATE';
+                            const isDanger = log.action === 'DELETE' || log.action === 'STATUS_CHANGE';
+
+                            return (
+                              <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-slate-700">{new Date(log.timestamp).toLocaleDateString()}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-black text-slate-900">{log.chemicalName || '--'}</span>
+                                    {log.lotNumber && <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 w-fit font-mono mt-0.5">Lot: {log.lotNumber}</span>}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className={`text-[9px] font-black px-2 py-1 rounded uppercase tracking-tighter ${
+                                    isUsage ? 'bg-emerald-100 text-emerald-700' :
+                                    isInventory ? 'bg-blue-100 text-blue-700' :
+                                    isMaster ? 'bg-amber-100 text-amber-700' :
+                                    isDanger ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex flex-col gap-1">
+                                    <p className="text-xs text-slate-600 font-medium">{log.details}</p>
+                                    {log.amount && (
+                                      <span className="text-[10px] font-black text-indigo-500">
+                                        Lượng: {log.amount} {log.unit}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500">
+                                      {log.userName.charAt(0)}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-700">{log.userName}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
              </div>
           )}
+          {activeTab === 'advisor' && <SafetyAdvisor chemicals={chemicals} />}
         </div>
       </main>
 
       {showForm && (
-        <ChemicalForm 
-          chemical={editingChemical}
-          onSave={handleSaveChemical}
-          onClose={() => { setShowForm(false); setEditingChemical(undefined); }}
-        />
+        <ChemicalForm chemical={editingChemical} initialStatus={initialFormStatus} onSave={handleSaveChemical} onClose={() => { setShowForm(false); setEditingChemical(undefined); }} />
+      )}
+      
+      {showLotForm && editingChemical && (
+        <LotForm chemical={editingChemical} onSave={handleAddLot} onClose={() => { setShowLotForm(false); setEditingChemical(undefined); }} />
       )}
     </div>
   );

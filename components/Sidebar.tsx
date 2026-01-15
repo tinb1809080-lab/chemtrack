@@ -1,56 +1,120 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 
 interface SidebarProps {
-  activeTab: 'inventory' | 'reports' | 'logs' | 'advisor';
-  setActiveTab: (tab: 'inventory' | 'reports' | 'logs' | 'advisor') => void;
+  activeTab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor';
+  setActiveTab: (tab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor') => void;
+  subTab: string;
+  setSubTab: (sub: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setSubTab }) => {
+  const [expandedMenu, setExpandedMenu] = useState<string | null>(activeTab);
+
   const menuItems = [
-    { id: 'inventory', label: 'Inventory', icon: 'fa-flask' },
-    { id: 'reports', label: 'Reports', icon: 'fa-chart-bar' },
-    { id: 'logs', label: 'Audit Logs', icon: 'fa-history' },
-    { id: 'advisor', label: 'Safety AI', icon: 'fa-robot' },
+    { 
+      id: 'inventory', 
+      label: 'Kho hiện tại', 
+      icon: 'fa-flask',
+      subs: [
+        { id: 'all', label: 'Tất cả hóa chất' },
+        { id: 'solid', label: 'Hóa chất rắn' },
+        { id: 'liquid', label: 'Hóa chất lỏng' },
+        { id: 'hazardous', label: 'Độ nguy hiểm cao' }
+      ]
+    },
+    { 
+      id: 'consumed', 
+      label: 'Đã sử dụng hết', 
+      icon: 'fa-check-circle',
+      subs: [
+        { id: 'all', label: 'Lịch sử tiêu thụ' }
+      ]
+    },
+    { 
+      id: 'disposal', 
+      label: 'Thanh lý/Hết hạn', 
+      icon: 'fa-trash-alt',
+      subs: [
+        { id: 'all', label: 'Tất cả quá hạn' },
+        { id: 'urgent', label: 'Cần tiêu hủy ngay' }
+      ]
+    },
+    { id: 'advisor', label: 'AI Safety Advisor', icon: 'fa-robot' },
+    { id: 'logs', label: 'Nhật ký hệ thống', icon: 'fa-history' },
   ];
 
+  const handleMainMenuClick = (id: string) => {
+    setActiveTab(id as any);
+    setExpandedMenu(expandedMenu === id ? null : id);
+  };
+
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl">
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl relative z-20">
       <div className="p-6 flex items-center space-x-3 border-b border-slate-800">
-        <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xl">
+        <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-indigo-500/20">
           <i className="fas fa-shield-virus"></i>
         </div>
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">ChemTrack</h2>
-          <span className="text-[10px] uppercase text-indigo-400 font-bold">Pro Enterprise</span>
+          <h2 className="text-xl font-black text-white tracking-tighter uppercase">ChemTrack</h2>
+          <span className="text-[9px] uppercase text-indigo-400 font-black tracking-widest leading-none">Smart Lab Pro</span>
         </div>
       </div>
 
-      <nav className="flex-1 mt-6 px-4 space-y-1">
+      <nav className="flex-1 mt-6 px-4 space-y-2 overflow-y-auto">
         {menuItems.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id as any)}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-              activeTab === item.id 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
-                : 'hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <i className={`fas ${item.icon} w-5`}></i>
-            <span className="font-medium">{item.label}</span>
-          </button>
+          <div key={item.id} className="space-y-1">
+            <button
+              onClick={() => handleMainMenuClick(item.id)}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${
+                activeTab === item.id 
+                  ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' 
+                  : 'hover:bg-slate-800/50 hover:text-white text-slate-400'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <i className={`fas ${item.icon} w-5 text-sm`}></i>
+                <span className="font-bold text-sm">{item.label}</span>
+              </div>
+              {item.subs && (
+                <i className={`fas fa-chevron-right text-[10px] transition-transform duration-300 ${expandedMenu === item.id ? 'rotate-90' : ''}`}></i>
+              )}
+            </button>
+
+            {/* Sub-menu items */}
+            {item.subs && expandedMenu === item.id && (
+              <div className="ml-9 space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
+                {item.subs.map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setSubTab(sub.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                      subTab === sub.id && activeTab === item.id
+                        ? 'text-indigo-400 bg-indigo-400/5'
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'
+                    }`}
+                  >
+                    <span className="mr-2 opacity-50">•</span>
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </nav>
 
-      <div className="p-6 border-t border-slate-800">
-        <div className="bg-slate-800/50 rounded-xl p-4 text-xs">
-          <p className="text-slate-400 mb-2">STORAGE STATUS</p>
-          <div className="h-1.5 w-full bg-slate-700 rounded-full mb-1">
-            <div className="h-full w-[65%] bg-indigo-500 rounded-full"></div>
+      <div className="p-6 border-t border-slate-800 bg-slate-900/50">
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <div className="flex justify-between items-center mb-2">
+             <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest leading-none">Storage Load</p>
+             <span className="text-[10px] font-black text-indigo-400">72%</span>
           </div>
-          <p className="text-right text-slate-500">65% Capacity Used</p>
+          <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-full w-[72%] bg-indigo-500 rounded-full"></div>
+          </div>
         </div>
+        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.4.0 (Undo Enabled)</p>
       </div>
     </aside>
   );

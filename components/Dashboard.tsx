@@ -7,28 +7,30 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ chemicals }) => {
-  const totalStock = chemicals.length;
-  const expired = chemicals.filter(c => new Date(c.expiryDate) < new Date()).length;
-  const lowStock = chemicals.filter(c => c.stock < 10).length;
-  const criticalHazards = chemicals.filter(c => c.nfpa.health >= 3 || c.nfpa.flammability >= 3).length;
+  const allLots = chemicals.flatMap(c => c.lots);
+  
+  const inStockCount = allLots.filter(l => l.status === 'RESERVED' || l.status === 'IN_USE').length;
+  const expiredCount = allLots.filter(l => l.status === 'EXPIRED').length;
+  const consumedCount = allLots.filter(l => l.status === 'CONSUMED').length;
 
   const stats = [
-    { label: 'Total Chemicals', value: totalStock, icon: 'fa-flask', color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Expired Items', value: expired, icon: 'fa-calendar-times', color: 'text-red-600', bg: 'bg-red-50' },
-    { label: 'Low Stock Alerts', value: lowStock, icon: 'fa-exclamation-triangle', color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    { label: 'High Hazard Materials', value: criticalHazards, icon: 'fa-biohazard', color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Hóa chất Tồn kho', value: inStockCount, icon: 'fa-box-open', color: 'text-indigo-600', bg: 'bg-indigo-50', sub: 'Đang sẵn dụng' },
+    { label: 'Cảnh báo Thanh lý', value: expiredCount, icon: 'fa-radiation', color: 'text-red-600', bg: 'bg-red-50', sub: 'Hết hạn sử dụng' },
+    { label: 'Lô đã tiêu thụ', value: consumedCount, icon: 'fa-check-double', color: 'text-emerald-600', bg: 'bg-emerald-50', sub: 'Đã dùng hết' },
+    { label: 'Hóa chất Master', value: chemicals.length, icon: 'fa-flask', color: 'text-blue-600', bg: 'bg-blue-50', sub: 'Danh mục quản lý' },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
       {stats.map((stat, idx) => (
-        <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className={`${stat.bg} ${stat.color} w-12 h-12 rounded-lg flex items-center justify-center text-xl`}>
+        <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-5 transition-all hover:shadow-md">
+          <div className={`${stat.bg} ${stat.color} w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner`}>
             <i className={`fas ${stat.icon}`}></i>
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-500 uppercase tracking-wider">{stat.label}</p>
-            <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{stat.label}</p>
+            <p className="text-3xl font-black text-slate-900 leading-tight">{stat.value}</p>
+            <p className="text-[9px] text-slate-400 font-bold mt-0.5 italic">{stat.sub}</p>
           </div>
         </div>
       ))}
