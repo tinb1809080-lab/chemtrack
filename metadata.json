@@ -1,0 +1,7 @@
+{
+  "name": "ChemTrack Pro",
+  "description": "A professional chemical management system for laboratories and warehouses featuring inventory tracking, GHS safety compliance, and AI-powered hazard analysis.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
