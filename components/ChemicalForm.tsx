@@ -63,6 +63,12 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
     try {
       const result = await searchChemicalInfo(formData.name);
       
+      if (result.error === "QUOTA_EXCEEDED") {
+        alert("⚠️ HẾT HẠN MỨC AI: Bạn đã vượt quá giới hạn lượt sử dụng miễn phí của Gemini trong hôm nay. Google Search Grounding có hạn mức rất thấp trên gói Free. Vui lòng đợi 1-2 phút rồi thử lại.");
+        setLoadingAI(false);
+        return;
+      }
+
       if (result.data) {
         setFormData(prev => ({
           ...prev,
@@ -80,11 +86,11 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
         }));
         setSources(result.sources);
       } else {
-        alert("AI không thể trích xuất dữ liệu tự động. Vui lòng kiểm tra lại tên hóa chất hoặc nhập thủ công.");
+        alert("AI không thể trích xuất dữ liệu tự động cho hóa chất này. Vui lòng kiểm tra lại tên hoặc nhập thủ công.");
       }
     } catch (err) {
       console.error("Lỗi AI Suggest:", err);
-      alert("Đã có lỗi xảy ra khi gọi AI. Hãy đảm bảo API Key đã được cấu hình đúng.");
+      alert("Đã có lỗi xảy ra khi gọi AI. Hãy đảm bảo mạng ổn định và thử lại sau.");
     } finally {
       setLoadingAI(false);
     }
