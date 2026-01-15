@@ -54,34 +54,40 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
   }, [initialStatus, chemical]);
 
   const handleAISuggest = async () => {
-    if (!formData.name || formData.name.length < 2) {
+    if (!formData.name || formData.name.trim().length < 2) {
       alert("Vui lòng nhập hoặc chọn tên hóa chất để tìm kiếm!");
       return;
     }
     
     setLoadingAI(true);
-    const result = await searchChemicalInfo(formData.name);
-    
-    if (result.data) {
-      setFormData(prev => ({
-        ...prev,
-        name: result.data.name || prev.name,
-        formula: result.data.formula || prev.formula,
-        casNumber: result.data.casNumber || prev.casNumber,
-        category: CATEGORIES.includes(result.data.category) ? result.data.category : prev.category,
-        state: Object.values(PhysicalState).includes(result.data.state as PhysicalState) ? result.data.state as PhysicalState : prev.state,
-        nfpa: result.data.nfpa ? {
-          health: result.data.nfpa.health ?? prev.nfpa?.health ?? 0,
-          flammability: result.data.nfpa.flammability ?? prev.nfpa?.flammability ?? 0,
-          instability: result.data.nfpa.instability ?? prev.nfpa?.instability ?? 0,
-          special: result.data.nfpa.special ?? prev.nfpa?.special ?? ""
-        } : prev.nfpa
-      }));
-      setSources(result.sources);
-    } else {
-      alert("Không tìm thấy thông tin tự động cho hóa chất này.");
+    try {
+      const result = await searchChemicalInfo(formData.name);
+      
+      if (result.data) {
+        setFormData(prev => ({
+          ...prev,
+          name: result.data.name || prev.name,
+          formula: result.data.formula || prev.formula,
+          casNumber: result.data.casNumber || prev.casNumber,
+          category: CATEGORIES.includes(result.data.category) ? result.data.category : prev.category,
+          state: Object.values(PhysicalState).includes(result.data.state as PhysicalState) ? result.data.state as PhysicalState : prev.state,
+          nfpa: result.data.nfpa ? {
+            health: result.data.nfpa.health ?? prev.nfpa?.health ?? 0,
+            flammability: result.data.nfpa.flammability ?? prev.nfpa?.flammability ?? 0,
+            instability: result.data.nfpa.instability ?? prev.nfpa?.instability ?? 0,
+            special: result.data.nfpa.special ?? prev.nfpa?.special ?? ""
+          } : prev.nfpa
+        }));
+        setSources(result.sources);
+      } else {
+        alert("AI không thể trích xuất dữ liệu tự động. Vui lòng kiểm tra lại tên hóa chất hoặc nhập thủ công.");
+      }
+    } catch (err) {
+      console.error("Lỗi AI Suggest:", err);
+      alert("Đã có lỗi xảy ra khi gọi AI. Hãy đảm bảo API Key đã được cấu hình đúng.");
+    } finally {
+      setLoadingAI(false);
     }
-    setLoadingAI(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -156,7 +162,7 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
                         }`}
                       >
                         {loadingAI ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-magic"></i>}
-                        <span>Gợi ý AI</span>
+                        <span>{loadingAI ? 'Đang tìm...' : 'Gợi ý AI'}</span>
                       </button>
                     </div>
                   </div>

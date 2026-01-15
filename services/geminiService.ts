@@ -1,22 +1,45 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize AI right before use to ensure the latest API Key
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+/**
+ * Trích xuất JSON từ chuỗi văn bản (hỗ trợ cả Markdown code blocks)
+ */
+function extractJson(text: string) {
+  try {
+    // Thử tìm khối JSON trong Markdown ```json ... ```
+    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+    const content = jsonMatch ? jsonMatch[1] : text;
+    return JSON.parse(content);
+  } catch (e) {
+    console.error("Lỗi parse JSON:", e, "Văn bản gốc:", text);
+    return null;
+  }
+}
 
 // Search for chemical details from the internet using Google Search tool
 export const searchChemicalInfo = async (query: string) => {
-  const model = 'gemini-3-pro-preview';
+  const ai = getAI();
+  // Sử dụng gemini-3-flash-preview cho tốc độ và khả năng Search tốt
+  const model = 'gemini-3-flash-preview';
   
-  const prompt = `Bạn là một chuyên gia hóa chất. Hãy tìm kiếm thông tin chính xác và cập nhật nhất từ internet cho hóa chất sau: "${query}".
-  Yêu cầu tìm:
-  1. Tên chuẩn (Standard Name)
-  2. Công thức hóa học (Chemical Formula)
-  3. Số CAS (CAS Number)
-  4. Chỉ số NFPA 704: Sức khỏe (Health 0-4), Dễ cháy (Flammability 0-4), Phản ứng (Instability 0-4) và Ký hiệu đặc biệt.
-  5. Danh mục: Chọn một trong các loại sau: Axit, Bazơ, Chất oxi hóa, Chất dễ cháy, Độc hại, Thuốc thử, Dung môi, Khác.
-  6. Trạng thái vật lý: Chọn một trong: Rắn, Lỏng, Khí.
-  
-  Trả về kết quả dưới dạng JSON.`;
+  const prompt = `Bạn là một chuyên gia hóa chất. Hãy tìm kiếm thông tin chính xác từ internet cho hóa chất: "${query}".
+  TRẢ VỀ DUY NHẤT MỘT KHỐI JSON (Markdown code block) với cấu trúc sau:
+  {
+    "name": "Tên chuẩn",
+    "formula": "Công thức",
+    "casNumber": "Số CAS",
+    "category": "Chọn một: Axit, Bazơ, Chất oxi hóa, Chất dễ cháy, Độc hại, Thuốc thử, Dung môi, Khác",
+    "state": "Chọn một: Rắn, Lỏng, Khí",
+    "nfpa": {
+      "health": 0-4,
+      "flammability": 0-4,
+      "instability": 0-4,
+      "special": "Ký hiệu đặc biệt"
+    }
+  }`;
 
   try {
     const response = await ai.models.generateContent({
@@ -24,36 +47,16 @@ export const searchChemicalInfo = async (query: string) => {
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            formula: { type: Type.STRING },
-            casNumber: { type: Type.STRING },
-            category: { type: Type.STRING, description: "One of: Axit, Bazơ, Chất oxi hóa, Chất dễ cháy, Độc hại, Thuốc thử, Dung môi, Khác" },
-            state: { type: Type.STRING, description: "One of: Rắn, Lỏng, Khí" },
-            nfpa: {
-              type: Type.OBJECT,
-              properties: {
-                health: { type: Type.INTEGER },
-                flammability: { type: Type.INTEGER },
-                instability: { type: Type.INTEGER },
-                special: { type: Type.STRING }
-              },
-              required: ["health", "flammability", "instability"]
-            }
-          },
-          required: ["name", "formula", "casNumber", "nfpa", "category", "state"]
-        }
+        // Không sử dụng responseMimeType khi dùng Search để tránh lỗi xung đột dữ liệu grounding
       },
     });
 
     const text = response.text;
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const jsonData = extractJson(text || "");
     
     return {
-      data: text ? JSON.parse(text) : null,
+      data: jsonData,
       sources: sources.map((chunk: any) => ({
         uri: chunk.web?.uri,
         title: chunk.web?.title
@@ -66,13 +69,9 @@ export const searchChemicalInfo = async (query: string) => {
 };
 
 export const getSafetyAdvice = async (chemicalName: string, casNumber: string) => {
+  const ai = getAI();
   const prompt = `Act as a senior chemical safety expert. Provide a concise safety summary for ${chemicalName} (CAS: ${casNumber}). 
-  Include: 
-  1. Primary hazards.
-  2. Storage compatibility (what to avoid).
-  3. PPE recommendations.
-  4. Emergency first aid in one sentence.
-  Return in a professional, clear format.`;
+  Include primary hazards, storage compatibility, PPE and emergency first aid.`;
 
   try {
     const response = await ai.models.generateContent({
