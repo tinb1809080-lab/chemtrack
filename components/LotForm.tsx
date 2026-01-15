@@ -5,7 +5,7 @@ import { UNITS } from '../constants';
 
 interface LotFormProps {
   chemical: Chemical;
-  onSave: (chemId: string, lot: ChemicalLot) => void;
+  onSave: (chemId: string, newLot: ChemicalLot) => void;
   onClose: () => void;
 }
 
