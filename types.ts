@@ -46,7 +46,7 @@ export interface Chemical {
   location: string;       // Vị trí lưu trữ
   supplier: string;       // Nhà cung cấp
   defaultPaoDays: number;
-  minThreshold: number;   // Ngưỡng tồn kho tối thiểu để báo động
+  minThreshold: number;   // Ngưỡng báo động tồn kho thấp
   sdsUrl?: string;
 }
 

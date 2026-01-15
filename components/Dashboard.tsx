@@ -14,19 +14,18 @@ const Dashboard: React.FC<DashboardProps> = ({ chemicals, onExportExcel }) => {
   const expiredCount = allLots.filter(l => l.status === 'EXPIRED').length;
   const consumedCount = allLots.filter(l => l.status === 'CONSUMED').length;
 
-  // Calculate chemicals with low stock
   const lowStockCount = chemicals.filter(c => {
-    const totalCurrentStock = c.lots
+    const totalQty = c.lots
       .filter(l => l.status === 'RESERVED' || l.status === 'IN_USE')
-      .reduce((sum, l) => sum + l.quantity, 0);
-    return totalCurrentStock <= (c.minThreshold || 0) && totalCurrentStock > 0;
+      .reduce((acc, l) => acc + l.quantity, 0);
+    return totalQty > 0 && totalQty < (c.minThreshold || 0);
   }).length;
 
   const stats = [
     { label: 'Hóa chất Tồn kho', value: inStockCount, icon: 'fa-box-open', color: 'text-indigo-600', bg: 'bg-indigo-50', sub: 'Đang sẵn dụng' },
-    { label: 'Sắp hết hàng', value: lowStockCount, icon: 'fa-exclamation-circle', color: 'text-amber-600', bg: 'bg-amber-50', sub: 'Chạm ngưỡng tối thiểu' },
+    { label: 'Sắp hết hàng', value: lowStockCount, icon: 'fa-bell', color: 'text-orange-600', bg: 'bg-orange-50', sub: 'Dưới ngưỡng định mức' },
     { label: 'Cảnh báo Thanh lý', value: expiredCount, icon: 'fa-radiation', color: 'text-red-600', bg: 'bg-red-50', sub: 'Hết hạn sử dụng' },
-    { label: 'Lô đã tiêu thụ', value: consumedCount, icon: 'fa-check-double', color: 'text-emerald-600', bg: 'bg-emerald-50', sub: 'Đã dùng hết' },
+    { label: 'Hóa chất Master', value: chemicals.length, icon: 'fa-flask', color: 'text-blue-600', bg: 'bg-blue-50', sub: 'Danh mục quản lý' },
   ];
 
   return (

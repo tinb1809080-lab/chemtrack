@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Chemical, UserRole, AuditLog, PhysicalState, ChemicalLot } from './types';
 import { INITIAL_CHEMICALS, CATEGORIES } from './constants';
 import Dashboard from './components/Dashboard';
@@ -9,9 +9,11 @@ import LotForm from './components/LotForm';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SafetyAdvisor from './components/SafetyAdvisor';
+import PrintLabelModal from './components/PrintLabelModal';
 import * as XLSX from 'https://esm.sh/xlsx';
 
 const STORAGE_KEY = 'chemtrack_pro_data';
+const LOGS_KEY = 'chemtrack_pro_logs';
 
 const App: React.FC = () => {
   const [chemicals, setChemicals] = useState<Chemical[]>(() => {
@@ -19,10 +21,15 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : INITIAL_CHEMICALS;
   });
   
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
+    const saved = localStorage.getItem(LOGS_KEY);
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [history, setHistory] = useState<Chemical[][]>([]); 
   const [redoStack, setRedoStack] = useState<Chemical[][]>([]); 
   const [userRole, setUserRole] = useState<UserRole>(UserRole.ADMIN);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system'>('inventory');
   const [subTab, setSubTab] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -32,13 +39,61 @@ const App: React.FC = () => {
 
   const [showForm, setShowForm] = useState(false);
   const [showLotForm, setShowLotForm] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printData, setPrintData] = useState<{chemical: Chemical, lot: ChemicalLot} | null>(null);
   const [initialFormStatus, setInitialFormStatus] = useState<ChemicalLot['status']>('RESERVED');
   const [editingChemical, setEditingChemical] = useState<Chemical | undefined>(undefined);
   
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' | 'undo' | 'redo' | 'warning' } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Export Excel Logic
+  // Persistence Logic
+  const handleSaveData = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(chemicals));
+    localStorage.setItem(LOGS_KEY, JSON.stringify(auditLogs));
+    setHasUnsavedChanges(false);
+    showToast('Dữ liệu đã được lưu vào bộ nhớ trình duyệt!', 'success');
+  };
+
+  // Backup & Restore
+  const handleExportBackup = () => {
+    const data = {
+      version: '2.5.0',
+      timestamp: new Date().toISOString(),
+      chemicals,
+      auditLogs
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ChemTrack_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    showToast('Đã xuất file sao lưu hệ thống!', 'success');
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.chemicals && Array.isArray(json.chemicals)) {
+          saveToHistory();
+          setChemicals(json.chemicals);
+          if (json.auditLogs) setAuditLogs(json.auditLogs);
+          showToast('Khôi phục dữ liệu thành công!', 'success');
+          addLog('STATUS_CHANGE', 'system', 'Khôi phục dữ liệu từ file sao lưu');
+        }
+      } catch (err) {
+        showToast('File không hợp lệ!', 'warning');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleExportExcel = () => {
     try {
       const inventoryData = chemicals.flatMap(chem => 
@@ -75,25 +130,14 @@ const App: React.FC = () => {
       const wb = XLSX.utils.book_new();
       const wsInventory = XLSX.utils.json_to_sheet(inventoryData);
       const wsLogs = XLSX.utils.json_to_sheet(logsData);
-
       XLSX.utils.book_append_sheet(wb, wsInventory, "Tồn Kho Hiện Tại");
       XLSX.utils.book_append_sheet(wb, wsLogs, "Nhật Ký Hệ Thống");
-
       const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
       XLSX.writeFile(wb, `Bao_Cao_ChemTrack_Pro_${dateStr}.xlsx`);
-      
       showToast('Đã xuất báo cáo Excel thành công!', 'success');
     } catch (error) {
-      console.error("Export Error:", error);
       showToast('Lỗi khi xuất file Excel', 'warning');
     }
-  };
-
-  // Persistence Logic
-  const handleSaveData = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(chemicals));
-    setHasUnsavedChanges(false);
-    showToast('Dữ liệu đã được lưu an toàn!', 'success');
   };
 
   useEffect(() => {
@@ -121,7 +165,6 @@ const App: React.FC = () => {
       setChemicals(previousState);
       setHistory(prev => prev.slice(1));
       showToast('Đã hoàn tác thao tác', 'undo');
-      addLog('STATUS_CHANGE', 'system', 'Hoàn tác (Undo)');
       setHasUnsavedChanges(true);
     }
   }, [history, chemicals]);
@@ -134,7 +177,6 @@ const App: React.FC = () => {
       setChemicals(nextState);
       setRedoStack(prev => prev.slice(1));
       showToast('Đã làm lại thao tác', 'redo');
-      addLog('STATUS_CHANGE', 'system', 'Làm lại (Redo)');
       setHasUnsavedChanges(true);
     }
   }, [redoStack, chemicals]);
@@ -142,10 +184,8 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey)) {
-        if (e.key === 'z') {
-          if (e.shiftKey) { e.preventDefault(); handleRedo(); }
-          else { e.preventDefault(); handleUndo(); }
-        } else if (e.key === 'y') { e.preventDefault(); handleRedo(); }
+        if (e.key === 'z') { e.shiftKey ? handleRedo() : handleUndo(); }
+        else if (e.key === 'y') { handleRedo(); }
         else if (e.key === 's') { e.preventDefault(); handleSaveData(); }
       }
     };
@@ -157,21 +197,6 @@ const App: React.FC = () => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
-
-  useEffect(() => {
-    const today = new Date();
-    setChemicals(prev => prev.map(c => ({
-      ...c,
-      lots: c.lots.map(l => {
-        if (l.status !== 'EXPIRED' && l.status !== 'DISPOSED' && l.status !== 'CONSUMED') {
-          if (new Date(l.expiryDate) < today) {
-            return { ...l, status: 'EXPIRED' as const };
-          }
-        }
-        return l;
-      })
-    })));
-  }, []);
 
   const addLog = (
     action: AuditLog['action'], 
@@ -200,10 +225,6 @@ const App: React.FC = () => {
 
   const filteredChemicals = useMemo(() => {
     return chemicals.filter(c => {
-      const totalStock = c.lots
-        .filter(l => l.status === 'RESERVED' || l.status === 'IN_USE')
-        .reduce((sum, l) => sum + l.quantity, 0);
-
       const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                            c.casNumber.includes(searchQuery) ||
                            c.code.toLowerCase().includes(searchQuery.toLowerCase());
@@ -211,8 +232,7 @@ const App: React.FC = () => {
       const matchesSubTab = subTab === 'all' || 
                            (subTab === 'solid' && c.state === PhysicalState.SOLID) ||
                            (subTab === 'liquid' && c.state === PhysicalState.LIQUID) ||
-                           (subTab === 'hazardous' && (c.nfpa.health >= 3 || c.nfpa.flammability >= 3)) ||
-                           (subTab === 'lowstock' && totalStock <= (c.minThreshold || 0));
+                           (subTab === 'hazardous' && (c.nfpa.health >= 3 || c.nfpa.flammability >= 3));
 
       const hasCorrectStatus = c.lots.some(l => {
         if (activeTab === 'inventory') return l.status === 'RESERVED' || l.status === 'IN_USE';
@@ -243,7 +263,17 @@ const App: React.FC = () => {
     });
   }, [auditLogs, logFilter]);
 
-  const handleLotAction = (chemId: string, lotId: string, action: 'OPEN' | 'USAGE' | 'STOCK_IN' | 'DISPOSE' | 'CONSUME_ALL', amount?: number, customDate?: string) => {
+  const handleLotAction = (chemId: string, lotId: string, action: 'OPEN' | 'USAGE' | 'STOCK_IN' | 'DISPOSE' | 'CONSUME_ALL' | 'PRINT', amount?: number, customDate?: string) => {
+    if (action === 'PRINT') {
+      const chem = chemicals.find(c => c.id === chemId);
+      const lot = chem?.lots.find(l => l.id === lotId);
+      if (chem && lot) {
+        setPrintData({ chemical: chem, lot });
+        setShowPrintModal(true);
+      }
+      return;
+    }
+
     saveToHistory();
     const today = new Date().toISOString().split('T')[0];
     const targetDate = customDate || today;
@@ -302,16 +332,13 @@ const App: React.FC = () => {
       action === 'CONSUME_ALL' ? 'CONSUME_ALL' : 'LOT_USAGE';
 
     addLog(logAction as any, lotId, details, currentChemName, currentLotNum, amount, currentUnit);
-    if (action === 'CONSUME_ALL') showToast('Đã xác nhận dùng hết lô hàng', 'success');
   };
 
   const handleAddLot = (chemId: string, newLot: ChemicalLot) => {
     saveToHistory();
     const chem = chemicals.find(c => c.id === chemId);
     setChemicals(prev => prev.map(c => {
-      if (c.id === chemId) {
-        return { ...c, lots: [...c.lots, newLot] };
-      }
+      if (c.id === chemId) return { ...c, lots: [...c.lots, newLot] };
       return c;
     }));
     addLog('ADD_LOT', newLot.id, `Nhập mới lô hàng: ${newLot.lotNumber}`, chem?.name, newLot.lotNumber, newLot.quantity, newLot.unit);
@@ -328,10 +355,6 @@ const App: React.FC = () => {
       const newChem = { ...chemical, id: Math.random().toString(36).substr(2, 9) };
       setChemicals(prev => [...prev, newChem]);
       addLog('CREATE', newChem.id, `Tạo mới hóa chất trong danh mục`, newChem.name);
-      if (newChem.lots.length > 0) {
-        const firstLot = newChem.lots[0];
-        addLog('ADD_LOT', firstLot.id, `Lô hàng khởi tạo: ${firstLot.lotNumber}`, newChem.name, firstLot.lotNumber, firstLot.quantity, firstLot.unit);
-      }
     }
     setShowForm(false);
     setEditingChemical(undefined);
@@ -353,37 +376,27 @@ const App: React.FC = () => {
         <Header userRole={userRole} setUserRole={setUserRole} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
         
         {/* Undo/Redo/Save Buttons */}
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end no-print">
              {hasUnsavedChanges && (
-                <button 
-                  onClick={handleSaveData}
-                  className="bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 text-xs font-black hover:bg-emerald-700 transition-all border border-emerald-400 group animate-bounce-subtle"
-                >
+                <button onClick={handleSaveData} className="bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 text-xs font-black hover:bg-emerald-700 transition-all border border-emerald-400 group animate-bounce-subtle">
                   <i className="fas fa-save"></i> LƯU DỮ LIỆU (Ctrl+S)
-                  <span className="bg-emerald-500 w-2 h-2 rounded-full ml-1"></span>
                 </button>
              )}
              {redoStack.length > 0 && (
                 <button onClick={handleRedo} className="bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-indigo-700 transition-all border border-indigo-400 group">
                   <i className="fas fa-redo"></i> Làm lại (Ctrl+Y)
-                  <span className="bg-indigo-500 px-1.5 py-0.5 rounded text-[10px] ml-1">{redoStack.length}</span>
                 </button>
              )}
              {history.length > 0 && (
                 <button onClick={handleUndo} className="bg-slate-800 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-slate-700 transition-all border border-slate-600 group">
                   <i className="fas fa-undo"></i> Hoàn tác (Ctrl+Z)
-                  <span className="bg-slate-600 px-1.5 py-0.5 rounded text-[10px] ml-1">{history.length}</span>
                 </button>
              )}
         </div>
 
         {toast && (
-          <div className={`fixed top-20 right-8 z-50 animate-in slide-in-from-right-10 px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 border font-bold text-sm ${
-            toast.type === 'undo' ? 'bg-indigo-600 text-white' : 
-            toast.type === 'redo' ? 'bg-emerald-600 text-white' : 
-            toast.type === 'success' ? 'bg-white text-slate-800' : 'bg-orange-50 text-orange-800 border-orange-200'
-          }`}>
-            <i className={`fas ${toast.type === 'undo' ? 'fa-history' : toast.type === 'redo' ? 'fa-redo' : 'fa-check-circle text-emerald-500'}`}></i>
+          <div className="fixed top-20 right-8 z-50 animate-in slide-in-from-right-10 px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 border font-bold text-sm bg-white text-slate-800 border-slate-200">
+            <i className={`fas fa-check-circle text-emerald-500`}></i>
             {toast.message}
           </div>
         )}
@@ -391,16 +404,15 @@ const App: React.FC = () => {
         <div className="p-8 max-w-7xl mx-auto w-full">
           {(activeTab === 'inventory' || activeTab === 'consumed' || activeTab === 'disposal') && (
             <>
-              <div className="flex justify-between items-end mb-6">
+              <div className="flex justify-between items-end mb-6 no-print">
                 <div>
-                   <h1 className="text-3xl font-black text-slate-800 tracking-tight">
-                     {activeTab === 'inventory' ? 'Kho Hóa chất' : 
-                      activeTab === 'consumed' ? 'Đã tiêu thụ' : 'Khu vực Thanh lý'}
+                   <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase">
+                     {activeTab === 'inventory' ? 'Kho Hóa chất' : activeTab === 'consumed' ? 'Đã tiêu thụ' : 'Khu vực Thanh lý'}
                    </h1>
                 </div>
                 <div className="flex space-x-2">
                   <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 bg-white text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm">
-                    <option value="All">Danh mục: Tất cả</option>
+                    <option value="All">Tất cả danh mục</option>
                     {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                   {activeTab === 'inventory' && (
@@ -426,37 +438,67 @@ const App: React.FC = () => {
               />
             </>
           )}
+
+          {activeTab === 'system' && (
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500 max-w-4xl mx-auto">
+               <div className="bg-slate-900 p-8 text-white">
+                  <h1 className="text-3xl font-black flex items-center gap-4">
+                     <i className="fas fa-cogs text-indigo-400"></i> Quản trị Hệ thống
+                  </h1>
+                  <p className="text-slate-400 mt-2 font-medium">Sao lưu và bảo trì dữ liệu cục bộ cho máy tính công ty.</p>
+               </div>
+               <div className="p-10 space-y-12">
+                  <section>
+                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">Bảo trì dữ liệu</h3>
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 group hover:border-indigo-300 transition-all">
+                           <div className="flex items-center gap-4 mb-4">
+                              <div className="w-12 h-12 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl shadow-lg">
+                                 <i className="fas fa-download"></i>
+                              </div>
+                              <h4 className="font-black text-indigo-900">Sao lưu dữ liệu</h4>
+                           </div>
+                           <p className="text-xs text-indigo-600 mb-6 font-medium">Xuất toàn bộ kho hóa chất và nhật ký ra file JSON để lưu trữ dự phòng.</p>
+                           <button onClick={handleExportBackup} className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-3 rounded-xl font-black text-sm hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
+                              TẢI FILE SAO LƯU (.JSON)
+                           </button>
+                        </div>
+
+                        <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 group hover:border-amber-300 transition-all">
+                           <div className="flex items-center gap-4 mb-4">
+                              <div className="w-12 h-12 bg-amber-600 text-white rounded-xl flex items-center justify-center text-xl shadow-lg">
+                                 <i className="fas fa-upload"></i>
+                              </div>
+                              <h4 className="font-black text-amber-900">Khôi phục hệ thống</h4>
+                           </div>
+                           <p className="text-xs text-amber-600 mb-6 font-medium">Sử dụng file JSON đã sao lưu để ghi đè dữ liệu hiện tại (thận trọng).</p>
+                           <input type="file" ref={fileInputRef} onChange={handleImportBackup} className="hidden" accept=".json" />
+                           <button onClick={() => fileInputRef.current?.click()} className="w-full bg-white border-2 border-amber-600 text-amber-600 py-3 rounded-xl font-black text-sm hover:bg-amber-600 hover:text-white transition-all shadow-sm">
+                              CHỌN FILE KHÔI PHỤC
+                           </button>
+                        </div>
+                     </div>
+                  </section>
+               </div>
+            </div>
+          )}
+
           {activeTab === 'logs' && (
-             /* Logs Section UI - Same as before */
              <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500">
                 <div className="bg-slate-900 p-6 flex justify-between items-center">
                    <div>
                      <h1 className="text-2xl font-black text-white flex items-center gap-3">
                         <i className="fas fa-history text-indigo-400"></i> Audit Trail
                      </h1>
-                     <p className="text-slate-400 text-xs mt-1 font-medium italic">Ghi lại toàn bộ lịch sử biến động dữ liệu hệ thống</p>
                    </div>
-                   
                    <div className="flex bg-slate-800 p-1 rounded-xl gap-1">
-                      {[
-                        { id: 'ALL', label: 'Tất cả' },
-                        { id: 'USAGE', label: 'Sử dụng' },
-                        { id: 'INVENTORY', label: 'Kho vận' },
-                        { id: 'MASTER', label: 'Dữ liệu gốc' }
-                      ].map(tab => (
-                        <button 
-                          key={tab.id}
-                          onClick={() => setLogFilter(tab.id as any)}
-                          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                            logFilter === tab.id ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {tab.label}
+                      {['ALL', 'USAGE', 'INVENTORY', 'MASTER'].map(tab => (
+                        <button key={tab} onClick={() => setLogFilter(tab as any)} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${logFilter === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}>
+                          {tab === 'ALL' ? 'Tất cả' : tab === 'USAGE' ? 'Sử dụng' : tab === 'INVENTORY' ? 'Kho vận' : 'Dữ liệu'}
                         </button>
                       ))}
                    </div>
                 </div>
-
                 <div className="p-6">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -466,70 +508,17 @@ const App: React.FC = () => {
                           <th className="px-6 py-4">Hóa chất / Lô</th>
                           <th className="px-6 py-4">Hành động</th>
                           <th className="px-6 py-4">Chi tiết thay đổi</th>
-                          <th className="px-6 py-4">Người thực hiện</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {filteredLogs.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-20 text-center text-slate-400 font-bold italic">
-                               <i className="fas fa-folder-open text-4xl mb-3 block opacity-20"></i>
-                               Không tìm thấy nhật ký trong danh mục này
-                            </td>
+                        {filteredLogs.map(log => (
+                          <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 text-xs font-bold text-slate-700">{new Date(log.timestamp).toLocaleString()}</td>
+                            <td className="px-6 py-4 text-xs font-black text-slate-900">{log.chemicalName} {log.lotNumber && <span className="text-[9px] bg-slate-100 px-1 rounded ml-1 font-mono">Lot: {log.lotNumber}</span>}</td>
+                            <td className="px-6 py-4"><span className="text-[9px] font-black px-2 py-1 bg-indigo-50 text-indigo-700 rounded uppercase">{log.action}</span></td>
+                            <td className="px-6 py-4 text-xs text-slate-600 font-medium">{log.details}</td>
                           </tr>
-                        ) : (
-                          filteredLogs.map(log => {
-                            const isUsage = log.action === 'LOT_USAGE' || log.action === 'OPEN_LOT' || log.action === 'CONSUME_ALL';
-                            const isInventory = log.action === 'ADD_LOT' || log.action === 'LOT_STOCK_IN';
-                            const isMaster = log.action === 'CREATE' || log.action === 'UPDATE';
-                            const isDanger = log.action === 'DELETE' || log.action === 'STATUS_CHANGE';
-
-                            return (
-                              <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-slate-700">{new Date(log.timestamp).toLocaleDateString()}</span>
-                                    <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-black text-slate-900">{log.chemicalName || '--'}</span>
-                                    {log.lotNumber && <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 w-fit font-mono mt-0.5">Lot: {log.lotNumber}</span>}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  <span className={`text-[9px] font-black px-2 py-1 rounded uppercase tracking-tighter ${
-                                    isUsage ? 'bg-emerald-100 text-emerald-700' :
-                                    isInventory ? 'bg-blue-100 text-blue-700' :
-                                    isMaster ? 'bg-amber-100 text-amber-700' :
-                                    isDanger ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {log.action}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="flex flex-col gap-1">
-                                    <p className="text-xs text-slate-600 font-medium">{log.details}</p>
-                                    {log.amount && (
-                                      <span className="text-[10px] font-black text-indigo-500">
-                                        Lượng: {log.amount} {log.unit}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-black text-slate-500">
-                                      {log.userName.charAt(0)}
-                                    </div>
-                                    <span className="text-xs font-bold text-slate-700">{log.userName}</span>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -540,13 +529,9 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {showForm && (
-        <ChemicalForm chemical={editingChemical} initialStatus={initialFormStatus} onSave={handleSaveChemical} onClose={() => { setShowForm(false); setEditingChemical(undefined); }} />
-      )}
-      
-      {showLotForm && editingChemical && (
-        <LotForm chemical={editingChemical} onSave={handleAddLot} onClose={() => { setShowLotForm(false); setEditingChemical(undefined); }} />
-      )}
+      {showForm && <ChemicalForm chemical={editingChemical} initialStatus={initialFormStatus} onSave={handleSaveChemical} onClose={() => { setShowForm(false); setEditingChemical(undefined); }} />}
+      {showLotForm && editingChemical && <LotForm chemical={editingChemical} onSave={handleAddLot} onClose={() => { setShowLotForm(false); setEditingChemical(undefined); }} />}
+      {showPrintModal && printData && <PrintLabelModal chemical={printData.chemical} lot={printData.lot} onClose={() => setShowPrintModal(false)} />}
     </div>
   );
 };

@@ -2,8 +2,8 @@
 import React, { useState } from 'react';
 
 interface SidebarProps {
-  activeTab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor';
-  setActiveTab: (tab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor') => void;
+  activeTab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system';
+  setActiveTab: (tab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system') => void;
   subTab: string;
   setSubTab: (sub: string) => void;
 }
@@ -18,10 +18,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
       icon: 'fa-flask',
       subs: [
         { id: 'all', label: 'Tất cả hóa chất' },
-        { id: 'lowstock', label: 'Hàng sắp hết (⚠️)' },
         { id: 'solid', label: 'Hóa chất rắn' },
         { id: 'liquid', label: 'Hóa chất lỏng' },
-        { id: 'hazardous', label: 'Độ nguy hiểm cao' }
+        { id: 'hazardous', label: 'Nguy hiểm cao' }
       ]
     },
     { 
@@ -37,12 +36,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
       label: 'Thanh lý/Hết hạn', 
       icon: 'fa-trash-alt',
       subs: [
-        { id: 'all', label: 'Tất cả quá hạn' },
-        { id: 'urgent', label: 'Cần tiêu hủy ngay' }
+        { id: 'all', label: 'Tất cả quá hạn' }
       ]
     },
-    { id: 'advisor', label: 'AI Safety Advisor', icon: 'fa-robot' },
-    { id: 'logs', label: 'Nhật ký hệ thống', icon: 'fa-history' },
+    { id: 'advisor', label: 'AI Advisor', icon: 'fa-robot' },
+    { id: 'logs', label: 'Nhật ký', icon: 'fa-history' },
+    { id: 'system', label: 'Hệ thống', icon: 'fa-cogs' },
   ];
 
   const handleMainMenuClick = (id: string) => {
@@ -51,13 +50,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
   };
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl relative z-20">
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl relative z-20 no-print">
       <div className="p-6 flex items-center space-x-3 border-b border-slate-800">
         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-indigo-500/20">
           <i className="fas fa-shield-virus"></i>
         </div>
         <div>
-          <h2 className="text-xl font-black text-white tracking-tighter uppercase">ChemTrack</h2>
+          <h2 className="text-xl font-black text-white tracking-tighter uppercase leading-none">ChemTrack</h2>
           <span className="text-[9px] uppercase text-indigo-400 font-black tracking-widest leading-none">Smart Lab Pro</span>
         </div>
       </div>
@@ -82,7 +81,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
               )}
             </button>
 
-            {/* Sub-menu items */}
             {item.subs && expandedMenu === item.id && (
               <div className="ml-9 space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
                 {item.subs.map(sub => (
@@ -108,14 +106,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
       <div className="p-6 border-t border-slate-800 bg-slate-900/50">
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
           <div className="flex justify-between items-center mb-2">
-             <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest leading-none">Storage Load</p>
-             <span className="text-[10px] font-black text-indigo-400">72%</span>
+             <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest leading-none">Data Status</p>
+             <span className="text-[10px] font-black text-emerald-400">LOCAL OK</span>
           </div>
           <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full w-[72%] bg-indigo-500 rounded-full"></div>
+            <div className="h-full w-[100%] bg-emerald-500 rounded-full"></div>
           </div>
         </div>
-        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.5.0 (Low Stock Alerts)</p>
+        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.5.0 - Company Build</p>
       </div>
     </aside>
   );
