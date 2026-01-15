@@ -18,6 +18,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
       icon: 'fa-flask',
       subs: [
         { id: 'all', label: 'Tất cả hóa chất' },
+        { id: 'lowstock', label: 'Hàng sắp hết (⚠️)' },
         { id: 'solid', label: 'Hóa chất rắn' },
         { id: 'liquid', label: 'Hóa chất lỏng' },
         { id: 'hazardous', label: 'Độ nguy hiểm cao' }
@@ -114,7 +115,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
             <div className="h-full w-[72%] bg-indigo-500 rounded-full"></div>
           </div>
         </div>
-        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.4.0 (Undo Enabled)</p>
+        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.5.0 (Low Stock Alerts)</p>
       </div>
     </aside>
   );

@@ -9,9 +9,16 @@ import LotForm from './components/LotForm';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SafetyAdvisor from './components/SafetyAdvisor';
+import * as XLSX from 'https://esm.sh/xlsx';
+
+const STORAGE_KEY = 'chemtrack_pro_data';
 
 const App: React.FC = () => {
-  const [chemicals, setChemicals] = useState<Chemical[]>(INITIAL_CHEMICALS);
+  const [chemicals, setChemicals] = useState<Chemical[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : INITIAL_CHEMICALS;
+  });
+  
   const [history, setHistory] = useState<Chemical[][]>([]); 
   const [redoStack, setRedoStack] = useState<Chemical[][]>([]); 
   const [userRole, setUserRole] = useState<UserRole>(UserRole.ADMIN);
@@ -19,8 +26,8 @@ const App: React.FC = () => {
   const [subTab, setSubTab] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
-  // Log filtering
   const [logFilter, setLogFilter] = useState<'ALL' | 'USAGE' | 'MASTER' | 'INVENTORY'>('ALL');
 
   const [showForm, setShowForm] = useState(false);
@@ -29,11 +36,81 @@ const App: React.FC = () => {
   const [editingChemical, setEditingChemical] = useState<Chemical | undefined>(undefined);
   
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' | 'undo' | 'redo' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' | 'undo' | 'redo' | 'warning' } | null>(null);
+
+  // Export Excel Logic
+  const handleExportExcel = () => {
+    try {
+      const inventoryData = chemicals.flatMap(chem => 
+        chem.lots.map(lot => ({
+          'Mã HC': chem.code,
+          'Tên Hóa Chất': chem.name,
+          'Công Thức': chem.formula,
+          'Số CAS': chem.casNumber,
+          'Danh Mục': chem.category,
+          'Trạng Thái': chem.state,
+          'Số Lô NSX': lot.mfgLotNumber,
+          'Số Lô Nội Bộ': lot.lotNumber,
+          'Số Lượng': lot.quantity,
+          'Đơn Vị': lot.unit,
+          'Ngày Nhập': lot.entryDate,
+          'Ngày Hết Hạn': lot.expiryDate,
+          'Ngày Mở Nắp': lot.openedDate || '',
+          'Tình Trạng': lot.status,
+          'Vị Trí': chem.location,
+          'Nhà Cung Cấp': chem.supplier
+        }))
+      );
+
+      const logsData = auditLogs.map(log => ({
+        'Thời Gian': new Date(log.timestamp).toLocaleString('vi-VN'),
+        'Hành Động': log.action,
+        'Hóa Chất': log.chemicalName || '',
+        'Số Lô': log.lotNumber || '',
+        'Thay Đổi': log.amount ? `${log.amount} ${log.unit}` : '',
+        'Chi Tiết': log.details,
+        'Người Thực Hiện': log.userName
+      }));
+
+      const wb = XLSX.utils.book_new();
+      const wsInventory = XLSX.utils.json_to_sheet(inventoryData);
+      const wsLogs = XLSX.utils.json_to_sheet(logsData);
+
+      XLSX.utils.book_append_sheet(wb, wsInventory, "Tồn Kho Hiện Tại");
+      XLSX.utils.book_append_sheet(wb, wsLogs, "Nhật Ký Hệ Thống");
+
+      const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      XLSX.writeFile(wb, `Bao_Cao_ChemTrack_Pro_${dateStr}.xlsx`);
+      
+      showToast('Đã xuất báo cáo Excel thành công!', 'success');
+    } catch (error) {
+      console.error("Export Error:", error);
+      showToast('Lỗi khi xuất file Excel', 'warning');
+    }
+  };
+
+  // Persistence Logic
+  const handleSaveData = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(chemicals));
+    setHasUnsavedChanges(false);
+    showToast('Dữ liệu đã được lưu an toàn!', 'success');
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = 'Bạn có thay đổi chưa lưu. Bạn có chắc chắn muốn thoát?';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const saveToHistory = useCallback(() => {
     setHistory(prev => [JSON.parse(JSON.stringify(chemicals)), ...prev].slice(0, 20));
     setRedoStack([]); 
+    setHasUnsavedChanges(true);
   }, [chemicals]);
 
   const handleUndo = useCallback(() => {
@@ -45,6 +122,7 @@ const App: React.FC = () => {
       setHistory(prev => prev.slice(1));
       showToast('Đã hoàn tác thao tác', 'undo');
       addLog('STATUS_CHANGE', 'system', 'Hoàn tác (Undo)');
+      setHasUnsavedChanges(true);
     }
   }, [history, chemicals]);
 
@@ -57,6 +135,7 @@ const App: React.FC = () => {
       setRedoStack(prev => prev.slice(1));
       showToast('Đã làm lại thao tác', 'redo');
       addLog('STATUS_CHANGE', 'system', 'Làm lại (Redo)');
+      setHasUnsavedChanges(true);
     }
   }, [redoStack, chemicals]);
 
@@ -67,13 +146,14 @@ const App: React.FC = () => {
           if (e.shiftKey) { e.preventDefault(); handleRedo(); }
           else { e.preventDefault(); handleUndo(); }
         } else if (e.key === 'y') { e.preventDefault(); handleRedo(); }
+        else if (e.key === 's') { e.preventDefault(); handleSaveData(); }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, chemicals]);
 
-  const showToast = (message: string, type: 'info' | 'success' | 'undo' | 'redo' = 'success') => {
+  const showToast = (message: string, type: 'info' | 'success' | 'undo' | 'redo' | 'warning' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -120,6 +200,10 @@ const App: React.FC = () => {
 
   const filteredChemicals = useMemo(() => {
     return chemicals.filter(c => {
+      const totalStock = c.lots
+        .filter(l => l.status === 'RESERVED' || l.status === 'IN_USE')
+        .reduce((sum, l) => sum + l.quantity, 0);
+
       const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                            c.casNumber.includes(searchQuery) ||
                            c.code.toLowerCase().includes(searchQuery.toLowerCase());
@@ -127,7 +211,8 @@ const App: React.FC = () => {
       const matchesSubTab = subTab === 'all' || 
                            (subTab === 'solid' && c.state === PhysicalState.SOLID) ||
                            (subTab === 'liquid' && c.state === PhysicalState.LIQUID) ||
-                           (subTab === 'hazardous' && (c.nfpa.health >= 3 || c.nfpa.flammability >= 3));
+                           (subTab === 'hazardous' && (c.nfpa.health >= 3 || c.nfpa.flammability >= 3)) ||
+                           (subTab === 'lowstock' && totalStock <= (c.minThreshold || 0));
 
       const hasCorrectStatus = c.lots.some(l => {
         if (activeTab === 'inventory') return l.status === 'RESERVED' || l.status === 'IN_USE';
@@ -243,7 +328,6 @@ const App: React.FC = () => {
       const newChem = { ...chemical, id: Math.random().toString(36).substr(2, 9) };
       setChemicals(prev => [...prev, newChem]);
       addLog('CREATE', newChem.id, `Tạo mới hóa chất trong danh mục`, newChem.name);
-      // Log the initial lot as well
       if (newChem.lots.length > 0) {
         const firstLot = newChem.lots[0];
         addLog('ADD_LOT', firstLot.id, `Lô hàng khởi tạo: ${firstLot.lotNumber}`, newChem.name, firstLot.lotNumber, firstLot.quantity, firstLot.unit);
@@ -268,9 +352,17 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-auto">
         <Header userRole={userRole} setUserRole={setUserRole} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
         
-        {/* Undo/Redo Buttons */}
-        {(history.length > 0 || redoStack.length > 0) && (
-          <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
+        {/* Undo/Redo/Save Buttons */}
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
+             {hasUnsavedChanges && (
+                <button 
+                  onClick={handleSaveData}
+                  className="bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 text-xs font-black hover:bg-emerald-700 transition-all border border-emerald-400 group animate-bounce-subtle"
+                >
+                  <i className="fas fa-save"></i> LƯU DỮ LIỆU (Ctrl+S)
+                  <span className="bg-emerald-500 w-2 h-2 rounded-full ml-1"></span>
+                </button>
+             )}
              {redoStack.length > 0 && (
                 <button onClick={handleRedo} className="bg-indigo-600 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-indigo-700 transition-all border border-indigo-400 group">
                   <i className="fas fa-redo"></i> Làm lại (Ctrl+Y)
@@ -283,12 +375,13 @@ const App: React.FC = () => {
                   <span className="bg-slate-600 px-1.5 py-0.5 rounded text-[10px] ml-1">{history.length}</span>
                 </button>
              )}
-          </div>
-        )}
+        </div>
 
         {toast && (
           <div className={`fixed top-20 right-8 z-50 animate-in slide-in-from-right-10 px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 border font-bold text-sm ${
-            toast.type === 'undo' ? 'bg-indigo-600 text-white' : toast.type === 'redo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-800'
+            toast.type === 'undo' ? 'bg-indigo-600 text-white' : 
+            toast.type === 'redo' ? 'bg-emerald-600 text-white' : 
+            toast.type === 'success' ? 'bg-white text-slate-800' : 'bg-orange-50 text-orange-800 border-orange-200'
           }`}>
             <i className={`fas ${toast.type === 'undo' ? 'fa-history' : toast.type === 'redo' ? 'fa-redo' : 'fa-check-circle text-emerald-500'}`}></i>
             {toast.message}
@@ -317,7 +410,7 @@ const App: React.FC = () => {
                   )}
                 </div>
               </div>
-              <Dashboard chemicals={chemicals} />
+              <Dashboard chemicals={chemicals} onExportExcel={handleExportExcel} />
               <ChemicalList 
                 chemicals={filteredChemicals} 
                 auditLogs={auditLogs}
@@ -334,6 +427,7 @@ const App: React.FC = () => {
             </>
           )}
           {activeTab === 'logs' && (
+             /* Logs Section UI - Same as before */
              <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500">
                 <div className="bg-slate-900 p-6 flex justify-between items-center">
                    <div>

@@ -12,7 +12,9 @@ export const searchChemicalInfo = async (query: string) => {
   1. Tên chuẩn (Standard Name)
   2. Công thức hóa học (Chemical Formula)
   3. Số CAS (CAS Number)
-  4. Chỉ số NFPA 704 (Mức độ nguy hại): Sức khỏe (Health 0-4), Dễ cháy (Flammability 0-4), Phản ứng (Instability 0-4) và Ký hiệu đặc biệt (nếu có).
+  4. Chỉ số NFPA 704: Sức khỏe (Health 0-4), Dễ cháy (Flammability 0-4), Phản ứng (Instability 0-4) và Ký hiệu đặc biệt.
+  5. Danh mục: Chọn một trong các loại sau: Axit, Bazơ, Chất oxi hóa, Chất dễ cháy, Độc hại, Thuốc thử, Dung môi, Khác.
+  6. Trạng thái vật lý: Chọn một trong: Rắn, Lỏng, Khí.
   
   Trả về kết quả dưới dạng JSON.`;
 
@@ -29,18 +31,20 @@ export const searchChemicalInfo = async (query: string) => {
             name: { type: Type.STRING },
             formula: { type: Type.STRING },
             casNumber: { type: Type.STRING },
+            category: { type: Type.STRING, description: "One of: Axit, Bazơ, Chất oxi hóa, Chất dễ cháy, Độc hại, Thuốc thử, Dung môi, Khác" },
+            state: { type: Type.STRING, description: "One of: Rắn, Lỏng, Khí" },
             nfpa: {
               type: Type.OBJECT,
               properties: {
-                health: { type: Type.INTEGER, description: "Health hazard rating 0-4" },
-                flammability: { type: Type.INTEGER, description: "Fire hazard rating 0-4" },
-                instability: { type: Type.INTEGER, description: "Instability/Reactivity rating 0-4" },
-                special: { type: Type.STRING, description: "Special hazards like W, OX, SA, etc." }
+                health: { type: Type.INTEGER },
+                flammability: { type: Type.INTEGER },
+                instability: { type: Type.INTEGER },
+                special: { type: Type.STRING }
               },
               required: ["health", "flammability", "instability"]
             }
           },
-          required: ["name", "formula", "casNumber", "nfpa"]
+          required: ["name", "formula", "casNumber", "nfpa", "category", "state"]
         }
       },
     });
@@ -79,25 +83,5 @@ export const getSafetyAdvice = async (chemicalName: string, casNumber: string) =
   } catch (error) {
     console.error("Gemini Error:", error);
     return "Could not retrieve safety advice at this time.";
-  }
-};
-
-export const analyzeHazardFromSdsText = async (sdsText: string) => {
-  const prompt = `Analyze this SDS text snippet and extract hazard classifications: ${sdsText.substring(0, 1000)}. 
-  Respond with a JSON object containing: { "ghsTags": [], "nfpa": { "health": 0, "flammability": 0, "instability": 0, "special": "" } }`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-    const text = response.text;
-    return text ? JSON.parse(text) : null;
-  } catch (error) {
-    console.error("SDS Analysis Error:", error);
-    return null;
   }
 };

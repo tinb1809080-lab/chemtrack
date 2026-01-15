@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Chemical, PhysicalState, NFPARating, ChemicalLot } from '../types';
 import { CATEGORIES, UNITS } from '../constants';
 import { searchChemicalInfo } from '../services/geminiService';
+import { MASTER_CHEMICAL_NAMES } from '../services/chemicalCatalog';
 
 interface ChemicalFormProps {
   chemical?: Chemical;
@@ -16,7 +17,6 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
   const [sources, setSources] = useState<{uri: string, title: string}[]>([]);
   const [showErrors, setShowErrors] = useState(false);
   
-  // Initialize form with existing chemical or default values
   const [formData, setFormData] = useState<Partial<Chemical>>(chemical || {
     code: `CH-${Math.floor(Math.random() * 900) + 100}`,
     name: '',
@@ -30,9 +30,9 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
     location: '',
     supplier: '',
     defaultPaoDays: 180,
+    minThreshold: 10,
   });
 
-  // Initialize lot data: if editing, take the first lot; if adding, create new
   const [lotData, setLotData] = useState<Partial<ChemicalLot>>(
     chemical && chemical.lots && chemical.lots.length > 0 
     ? { ...chemical.lots[0] } 
@@ -68,6 +68,8 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
         name: result.data.name || prev.name,
         formula: result.data.formula || prev.formula,
         casNumber: result.data.casNumber || prev.casNumber,
+        category: CATEGORIES.includes(result.data.category) ? result.data.category : prev.category,
+        state: Object.values(PhysicalState).includes(result.data.state as PhysicalState) ? result.data.state as PhysicalState : prev.state,
         nfpa: result.data.nfpa ? {
           health: result.data.nfpa.health ?? prev.nfpa?.health ?? 0,
           flammability: result.data.nfpa.flammability ?? prev.nfpa?.flammability ?? 0,
@@ -86,21 +88,17 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
     e.preventDefault();
     setShowErrors(true);
 
-    // Validation: Lot Number and Expiry Date are mandatory for the primary lot
     if (!lotData.lotNumber || !lotData.expiryDate) {
       return; 
     }
     
     const finalChemical = { ...formData } as Chemical;
-    
-    // Create or Update the first lot in the array
     const updatedLot = {
       ...lotData,
       id: lotData.id || `lot-${Math.random().toString(36).substr(2, 5)}`,
     } as ChemicalLot;
 
     if (chemical && chemical.lots && chemical.lots.length > 0) {
-      // Replace the first lot with updated data, keep others
       finalChemical.lots = [updatedLot, ...chemical.lots.slice(1)];
     } else {
       finalChemical.lots = [updatedLot];
@@ -121,30 +119,34 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
             <i className="fas fa-flask"></i>
             {chemical ? 'Cập nhật Hóa chất & Lô hàng' : initialStatus === 'DISPOSED' ? 'Khai báo Hóa chất Thanh lý' : 'Cấu hình Hóa chất & Lô hàng'}
           </h2>
-          <p className="text-sm text-slate-400">
-            {chemical ? 'Chỉnh sửa thông tin Master và cập nhật lô hàng hiện tại.' : 'Thiết lập thông tin Master và số lô nhập kho ban đầu.'}
-          </p>
+          <p className="text-sm text-slate-400">Chọn tên từ danh mục chuẩn và sử dụng AI để tự động lấy thông tin CAS/Formula.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-6">
               <section className="bg-slate-50 p-6 rounded-xl border border-slate-100 shadow-sm">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Thông tin định danh</h3>
-                </div>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Thông tin định danh</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Tên hóa chất</label>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Tên hóa chất (Chuẩn Catalog)</label>
                     <div className="flex gap-2 mt-1">
-                      <input 
-                        type="text" 
-                        required 
-                        value={formData.name} 
-                        onChange={e => setFormData({...formData, name: e.target.value})} 
-                        className="flex-1 border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-bold shadow-inner"
-                        placeholder="Ví dụ: Acetone, Sulfuric Acid..."
-                      />
+                      <div className="flex-1 relative">
+                        <input 
+                          list="master-chemicals"
+                          type="text" 
+                          required 
+                          value={formData.name} 
+                          onChange={e => setFormData({...formData, name: e.target.value})} 
+                          className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-bold shadow-inner"
+                          placeholder="Nhập hoặc chọn tên chuẩn..."
+                        />
+                        <datalist id="master-chemicals">
+                          {MASTER_CHEMICAL_NAMES.map((name, idx) => (
+                            <option key={idx} value={name} />
+                          ))}
+                        </datalist>
+                      </div>
                       <button 
                         type="button"
                         onClick={handleAISuggest}
@@ -166,73 +168,37 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Số CAS</label>
                     <input type="text" value={formData.casNumber} onChange={e => setFormData({...formData, casNumber: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner"/>
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Nhà cung cấp (Nhập tay)</label>
-                    <input 
-                      type="text" 
-                      value={formData.supplier} 
-                      onChange={e => setFormData({...formData, supplier: e.target.value})} 
-                      className="mt-1 w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" 
-                      placeholder="Gõ tên nhà phân phối tại đây..."
-                    />
-                  </div>
                 </div>
-
-                {sources.length > 0 && (
-                  <div className="mt-4 p-3 bg-white/50 rounded-lg border border-dashed border-slate-200">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                      <i className="fas fa-globe text-indigo-400"></i> Nguồn tham khảo từ Internet:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {sources.slice(0, 3).map((s, idx) => (
-                        <a 
-                          key={idx} 
-                          href={s.uri} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-[10px] text-indigo-500 hover:underline flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded transition-colors"
-                        >
-                          <i className="fas fa-link text-[8px]"></i>
-                          {s.title || "Nguồn tin"}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </section>
 
               <section className="bg-slate-50 p-6 rounded-xl border border-slate-100 shadow-sm">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Phân loại & Lưu trữ</h3>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Phân loại & Cảnh báo tồn kho</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Mã hóa chất</label>
-                    <input type="text" required value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner"/>
-                  </div>
-                  <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Danh mục</label>
-                    <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner">
+                    <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner font-bold text-indigo-700">
                       {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                  <div className="bg-amber-50 p-2 rounded-lg border border-amber-100">
+                    <label className="block text-[10px] font-bold text-amber-600 uppercase">Ngưỡng báo động tồn kho</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={formData.minThreshold} 
+                      onChange={e => setFormData({...formData, minThreshold: Number(e.target.value)})} 
+                      className="mt-1 w-full border-amber-200 border rounded-lg px-3 py-2 bg-white font-black text-amber-700 outline-none shadow-sm focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Trạng thái vật lý</label>
-                    <select value={formData.state} onChange={e => setFormData({...formData, state: e.target.value as PhysicalState})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner">
+                    <select value={formData.state} onChange={e => setFormData({...formData, state: e.target.value as PhysicalState})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner font-bold text-indigo-700">
                       {Object.values(PhysicalState).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase">Hạn mở nắp (Ngày)</label>
                     <input type="number" value={formData.defaultPaoDays} onChange={e => setFormData({...formData, defaultPaoDays: Number(e.target.value)})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white font-bold text-indigo-600 outline-none shadow-inner"/>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Vị trí lưu trữ (Kệ/Tủ/Phòng)</label>
-                    <input 
-                      type="text" 
-                      value={formData.location} 
-                      onChange={e => setFormData({...formData, location: e.target.value})} 
-                      className="mt-1 w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" 
-                      placeholder="Ví dụ: Tủ A-01, Phòng Lab 02..."
-                    />
                   </div>
                 </div>
               </section>
@@ -241,80 +207,46 @@ const ChemicalForm: React.FC<ChemicalFormProps> = ({ chemical, initialStatus = '
             <div className="space-y-6">
               <section className={`${initialStatus === 'DISPOSED' ? 'bg-red-50/50 border-red-100' : 'bg-indigo-50/50 border-indigo-100'} p-6 rounded-xl border relative shadow-sm`}>
                 <h3 className={`text-xs font-black ${initialStatus === 'DISPOSED' ? 'text-red-400' : 'text-indigo-400'} uppercase tracking-widest mb-4 flex items-center gap-2`}>
-                  <i className="fas fa-boxes"></i> {chemical ? 'Thông tin lô hàng' : 'Lô hàng khởi tạo'}
+                  <i className="fas fa-boxes"></i> Lô hàng khởi tạo
                 </h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase">Số lô NSX</label>
-                      <input type="text" value={lotData.mfgLotNumber} onChange={e => setLotData({...lotData, mfgLotNumber: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none placeholder:text-[10px] shadow-inner" placeholder="Từ NSX..."/>
-                    </div>
                     <div>
                       <label className="block text-[10px] font-bold uppercase">Số lô nội bộ *</label>
                       <input 
                         type="text" 
                         value={lotData.lotNumber} 
                         onChange={e => setLotData({...lotData, lotNumber: e.target.value})} 
-                        className={`mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none placeholder:text-[10px] shadow-inner ${showErrors && !lotData.lotNumber ? 'border-red-500 ring-2 ring-red-100' : ''}`} 
-                        placeholder="Tracking ID..."
+                        className={`mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner ${showErrors && !lotData.lotNumber ? 'border-red-500' : ''}`} 
                       />
-                      {showErrors && !lotData.lotNumber && <p className="text-[8px] text-red-500 mt-1 font-bold">Bắt buộc nhập số lô</p>}
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] font-bold uppercase">Số lượng</label>
                       <input type="number" value={lotData.quantity} onChange={e => setLotData({...lotData, quantity: Number(e.target.value)})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none font-bold shadow-inner"/>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase">Đơn vị</label>
-                      <select value={lotData.unit} onChange={e => setLotData({...lotData, unit: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner">
-                        {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                      </select>
-                    </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold uppercase text-slate-400">Ngày nhập</label>
-                    <input type="date" value={lotData.entryDate} onChange={e => setLotData({...lotData, entryDate: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none text-xs shadow-inner"/>
-                  </div>
-                  <div>
-                    <label className={`block text-[10px] font-bold uppercase ${showErrors && !lotData.expiryDate ? 'text-red-600' : 'text-slate-400'}`}>Ngày hết hạn *</label>
+                    <label className={`block text-[10px] font-bold uppercase ${showErrors && !lotData.expiryDate ? 'text-red-600' : ''}`}>Ngày hết hạn *</label>
                     <input 
                       type="date" 
                       value={lotData.expiryDate} 
                       onChange={e => setLotData({...lotData, expiryDate: e.target.value})} 
-                      className={`mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none text-xs shadow-inner ${showErrors && !lotData.expiryDate ? 'border-red-500 bg-red-50 ring-2 ring-red-100' : ''}`}
+                      className={`mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none text-xs shadow-inner ${showErrors && !lotData.expiryDate ? 'border-red-500' : ''}`}
                     />
-                    {showErrors && !lotData.expiryDate && (
-                      <div className="p-2 bg-red-600 text-white rounded-lg mt-2 animate-bounce shadow-md">
-                         <p className="text-[10px] font-black text-center">
-                            <i className="fas fa-exclamation-triangle mr-1"></i>
-                            BẮT BUỘC NHẬP NGÀY HẾT HẠN
-                         </p>
-                      </div>
-                    )}
                   </div>
                 </div>
               </section>
               
               <section className="bg-orange-50/50 p-6 rounded-xl border border-orange-100 shadow-sm">
-                <h3 className="text-xs font-black text-orange-400 uppercase tracking-widest mb-4">NFPA 704 Danger</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <h3 className="text-xs font-black text-orange-400 uppercase tracking-widest mb-4">Vị trí & NCC</h3>
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-[9px] font-bold text-blue-600">Sức khỏe</label>
-                    <input type="number" max="4" min="0" value={formData.nfpa?.health} onChange={e => setFormData({...formData, nfpa: {...formData.nfpa!, health: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-center font-bold shadow-inner"/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Vị trí lưu trữ</label>
+                    <input type="text" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner" placeholder="Tủ, Kệ..."/>
                   </div>
                   <div>
-                    <label className="block text-[9px] font-bold text-red-600">Dễ cháy</label>
-                    <input type="number" max="4" min="0" value={formData.nfpa?.flammability} onChange={e => setFormData({...formData, nfpa: {...formData.nfpa!, flammability: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-center font-bold shadow-inner"/>
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-yellow-600">Phản ứng</label>
-                    <input type="number" max="4" min="0" value={formData.nfpa?.instability} onChange={e => setFormData({...formData, nfpa: {...formData.nfpa!, instability: Number(e.target.value)}})} className="w-full border rounded-lg px-2 py-1 text-center font-bold shadow-inner"/>
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-600">Đặc biệt</label>
-                    <input type="text" placeholder="W, OX..." value={formData.nfpa?.special} onChange={e => setFormData({...formData, nfpa: {...formData.nfpa!, special: e.target.value}})} className="w-full border rounded-lg px-2 py-1 text-center text-[10px] uppercase font-bold shadow-inner"/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Nhà cung cấp</label>
+                    <input type="text" value={formData.supplier} onChange={e => setFormData({...formData, supplier: e.target.value})} className="mt-1 w-full border rounded-lg px-3 py-2 bg-white outline-none shadow-inner" placeholder="Tên NCC..."/>
                   </div>
                 </div>
               </section>

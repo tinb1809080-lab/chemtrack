@@ -21,6 +21,7 @@ export const INITIAL_CHEMICALS: Chemical[] = [
     location: 'Tủ A-02',
     supplier: 'Sigma-Aldrich',
     defaultPaoDays: 180,
+    minThreshold: 20, // Báo động khi tổng dưới 20L
     lots: [
       {
         id: 'lot-101',
@@ -59,6 +60,7 @@ export const INITIAL_CHEMICALS: Chemical[] = [
     location: 'Tủ Axit 01',
     supplier: 'Merck',
     defaultPaoDays: 90,
+    minThreshold: 5, // Báo động khi tổng dưới 5L
     lots: [
       {
         id: 'lot-201',
