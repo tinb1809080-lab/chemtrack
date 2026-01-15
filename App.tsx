@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Chemical, UserRole, AuditLog, Transaction } from './types';
+import { Chemical, UserRole, AuditLog, Transaction, PhysicalState } from './types';
 import { INITIAL_CHEMICALS } from './constants';
 import Dashboard from './components/Dashboard';
 import ChemicalList from './components/ChemicalList';
@@ -15,6 +15,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'inventory' | 'reports' | 'logs' | 'advisor'>('inventory');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedState, setSelectedState] = useState<'All' | PhysicalState>('All');
   const [showForm, setShowForm] = useState(false);
   const [editingChemical, setEditingChemical] = useState<Chemical | undefined>(undefined);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -22,13 +23,14 @@ const App: React.FC = () => {
   // Filtering Logic
   const filteredChemicals = useMemo(() => {
     return chemicals.filter(c => {
-      const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            c.casNumber.includes(searchQuery) ||
                            c.code.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = selectedCategory === 'All' || c.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+      const matchesState = selectedState === 'All' || c.state === selectedState;
+      return matchesSearch && matchesCategory && matchesState;
     });
-  }, [chemicals, searchQuery, selectedCategory]);
+  }, [chemicals, searchQuery, selectedCategory, selectedState]);
 
   const addLog = (action: AuditLog['action'], entityId: string, details: string) => {
     const newLog: AuditLog = {
@@ -102,7 +104,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-800">Inventory Management</h1>
                 <div className="flex space-x-2">
-                  <select 
+                  <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
                     className="border rounded-md px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500"
@@ -112,8 +114,18 @@ const App: React.FC = () => {
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
+                  <select
+                    value={selectedState}
+                    onChange={(e) => setSelectedState(e.target.value as 'All' | PhysicalState)}
+                    className="border rounded-md px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="All">All States</option>
+                    <option value={PhysicalState.SOLID}>{PhysicalState.SOLID}</option>
+                    <option value={PhysicalState.LIQUID}>{PhysicalState.LIQUID}</option>
+                    <option value={PhysicalState.GAS}>{PhysicalState.GAS}</option>
+                  </select>
                   {userRole !== UserRole.VIEWER && (
-                    <button 
+                    <button
                       onClick={() => setShowForm(true)}
                       className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition flex items-center gap-2"
                     >
