@@ -5,6 +5,14 @@ export enum UserRole {
   VIEWER = 'VIEWER'
 }
 
+export interface User {
+  id: string;
+  username: string;
+  fullName: string;
+  role: UserRole;
+  avatar?: string;
+}
+
 export enum PhysicalState {
   SOLID = 'Rắn',
   LIQUID = 'Lỏng',
@@ -20,33 +28,33 @@ export interface NFPARating {
 
 export interface ChemicalLot {
   id: string;
-  mfgLotNumber: string;   // Số lô NSX (Manufacturer Lot)
-  lotNumber: string;      // Số lô nội bộ (Internal Tracking Lot)
-  quantity: number;       // Số lượng hiện tại
+  mfgLotNumber: string;
+  lotNumber: string;
+  quantity: number;
   unit: string;
-  entryDate: string;      // Ngày nhập kho
-  expiryDate: string;     // Ngày hết hạn
-  openedDate?: string;    // Ngày mở nắp
-  lastUsedDate?: string;  // Ngày dùng gần nhất
-  paoDays?: number;       // Số ngày sử dụng sau khi mở
+  entryDate: string;
+  expiryDate: string;
+  openedDate?: string;
+  lastUsedDate?: string;
+  paoDays?: number;
   status: 'RESERVED' | 'IN_USE' | 'EXPIRED' | 'CONSUMED' | 'DISPOSED';
 }
 
 export interface Chemical {
   id: string;
-  code: string;           // Mã hóa chất
-  name: string;           // Tên hóa chất
-  formula: string;        // Công thức hóa học
-  casNumber: string;      // CAS Number
-  category: string;       // Nhóm/loại hóa chất
-  state: PhysicalState;   // Trạng thái
-  hazardGHS: string[];    // GHS Tags
-  nfpa: NFPARating;       // NFPA 704
-  lots: ChemicalLot[];    // Danh sách các lô
-  location: string;       // Vị trí lưu trữ
-  supplier: string;       // Nhà cung cấp
+  code: string;
+  name: string;
+  formula: string;
+  casNumber: string;
+  category: string;
+  state: PhysicalState;
+  hazardGHS: string[];
+  nfpa: NFPARating;
+  lots: ChemicalLot[];
+  location: string;
+  supplier: string;
   defaultPaoDays: number;
-  minThreshold: number;   // Ngưỡng báo động tồn kho thấp
+  minThreshold: number;
   sdsUrl?: string;
 }
 
@@ -57,9 +65,9 @@ export interface AuditLog {
   userName: string;
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'OPEN_LOT' | 'LOT_USAGE' | 'LOT_STOCK_IN' | 'ADD_LOT' | 'STATUS_CHANGE' | 'CONSUME_ALL';
   entityId: string;
-  chemicalName?: string;  // Tên hóa chất liên quan
-  lotNumber?: string;     // Số lô liên quan
-  amount?: number;        // Lượng thay đổi
-  unit?: string;          // Đơn vị
+  chemicalName?: string;
+  lotNumber?: string;
+  amount?: number;
+  unit?: string;
   details: string;
 }
