@@ -11,13 +11,22 @@ import Header from './components/Header';
 import Login from './components/Login';
 import SafetyAdvisor from './components/SafetyAdvisor';
 import PrintLabelModal from './components/PrintLabelModal';
-import * as XLSX from 'https://esm.sh/xlsx';
+import ProcurementSection from './components/ProcurementSection';
+import * as XLSX from 'xlsx';
 
 const STORAGE_KEY = 'chemtrack_pro_data';
 const LOGS_KEY = 'chemtrack_pro_logs';
 const AUTH_KEY = 'chemtrack_session';
+const USERS_KEY = 'chemtrack_users';
 
 const App: React.FC = () => {
+  const [users, setUsers] = useState<User[]>(() => {
+    const saved = localStorage.getItem(USERS_KEY);
+    return saved ? JSON.parse(saved) : [
+      { id: '1', username: 'admin', password: '123', fullName: 'Quản Trị Viên', email: 'admin@gmail.com', role: UserRole.ADMIN }
+    ];
+  });
+
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const savedSession = localStorage.getItem(AUTH_KEY);
     return savedSession ? JSON.parse(savedSession) : null;
@@ -35,14 +44,11 @@ const App: React.FC = () => {
 
   const [history, setHistory] = useState<Chemical[][]>([]); 
   const [redoStack, setRedoStack] = useState<Chemical[][]>([]); 
-  const [activeTab, setActiveTab] = useState<'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system' | 'procurement'>('inventory');
   const [subTab, setSubTab] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
-  const [logFilter, setLogFilter] = useState<'ALL' | 'USAGE' | 'MASTER' | 'INVENTORY'>('ALL');
-
   const [showForm, setShowForm] = useState(false);
   const [showLotForm, setShowLotForm] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -51,7 +57,12 @@ const App: React.FC = () => {
   const [editingChemical, setEditingChemical] = useState<Chemical | undefined>(undefined);
   
   const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' | 'undo' | 'redo' | 'warning' } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(chemicals));
+    localStorage.setItem(LOGS_KEY, JSON.stringify(auditLogs));
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  }, [chemicals, auditLogs, users]);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -59,55 +70,15 @@ const App: React.FC = () => {
     showToast(`Chào mừng trở lại, ${user.fullName}!`, 'success');
   };
 
+  const handleUpdateUsers = (newUsers: User[]) => {
+    setUsers(newUsers);
+  };
+
   const handleLogout = () => {
-    if (confirm('Bạn có chắc chắn muốn đăng xuất khỏi hệ thống?')) {
+    if (confirm('Bạn có chắc chắn muốn đăng xuất?')) {
       setCurrentUser(null);
       localStorage.removeItem(AUTH_KEY);
     }
-  };
-
-  const handleSaveData = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(chemicals));
-    localStorage.setItem(LOGS_KEY, JSON.stringify(auditLogs));
-    setHasUnsavedChanges(false);
-    showToast('Dữ liệu đã được lưu thành công!', 'success');
-  };
-
-  const handleExportBackup = () => {
-    const data = {
-      version: '2.5.0',
-      timestamp: new Date().toISOString(),
-      chemicals,
-      auditLogs
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ChemTrack_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-  };
-
-  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (json.chemicals) {
-          saveToHistory();
-          setChemicals(json.chemicals);
-          if (json.auditLogs) setAuditLogs(json.auditLogs);
-          showToast('Khôi phục dữ liệu thành công!', 'success');
-          addLog('STATUS_CHANGE', 'system', 'Khôi phục từ file backup');
-        }
-      } catch (err) {
-        showToast('Lỗi định dạng file!', 'warning');
-      }
-    };
-    reader.readAsText(file);
   };
 
   const handleExportExcel = () => {
@@ -136,7 +107,6 @@ const App: React.FC = () => {
   const saveToHistory = useCallback(() => {
     setHistory(prev => [JSON.parse(JSON.stringify(chemicals)), ...prev].slice(0, 20));
     setRedoStack([]); 
-    setHasUnsavedChanges(true);
   }, [chemicals]);
 
   const handleUndo = useCallback(() => {
@@ -144,18 +114,8 @@ const App: React.FC = () => {
       setRedoStack(prev => [JSON.parse(JSON.stringify(chemicals)), ...prev]);
       setChemicals(history[0]);
       setHistory(prev => prev.slice(1));
-      setHasUnsavedChanges(true);
     }
   }, [history, chemicals]);
-
-  const handleRedo = useCallback(() => {
-    if (redoStack.length > 0) {
-      setHistory(prev => [JSON.parse(JSON.stringify(chemicals)), ...prev]);
-      setChemicals(redoStack[0]);
-      setRedoStack(prev => prev.slice(1));
-      setHasUnsavedChanges(true);
-    }
-  }, [redoStack, chemicals]);
 
   const showToast = (message: string, type: 'info' | 'success' | 'undo' | 'redo' | 'warning' = 'success') => {
     setToast({ message, type });
@@ -169,11 +129,12 @@ const App: React.FC = () => {
     chemicalName?: string, 
     lotNumber?: string,
     amount?: number,
-    unit?: string
+    unit?: string,
+    customTimestamp?: string
   ) => {
     const newLog: AuditLog = {
       id: Math.random().toString(36).substr(2, 9),
-      timestamp: new Date().toISOString(),
+      timestamp: customTimestamp || new Date().toISOString(),
       userId: currentUser?.id || 'unknown',
       userName: currentUser?.fullName || 'Ẩn danh',
       action,
@@ -217,7 +178,12 @@ const App: React.FC = () => {
     })).filter(c => c.lots.length > 0);
   }, [chemicals, searchQuery, selectedCategory, activeTab, subTab]);
 
-  const handleLotAction = (chemId: string, lotId: string, action: 'OPEN' | 'USAGE' | 'STOCK_IN' | 'DISPOSE' | 'CONSUME_ALL' | 'PRINT', amount?: number) => {
+  const handleLotAction = (chemId: string, lotId: string, action: 'OPEN' | 'USAGE' | 'STOCK_IN' | 'DISPOSE' | 'CONSUME_ALL' | 'PRINT' | 'UPDATE_DATES', amount?: number, customDate?: string, extra?: any) => {
+    if (currentUser?.role === UserRole.VIEWER) {
+      showToast('Bạn không có quyền thực hiện giao dịch!', 'warning');
+      return;
+    }
+    
     if (action === 'PRINT') {
       const chem = chemicals.find(c => c.id === chemId);
       const lot = chem?.lots.find(l => l.id === lotId);
@@ -230,10 +196,12 @@ const App: React.FC = () => {
 
     saveToHistory();
     const today = new Date().toISOString().split('T')[0];
+    const targetDate = customDate || today;
     let details = '';
     let currentChemName = '';
     let currentLotNum = '';
     let currentUnit = '';
+    let logAction: AuditLog['action'] = 'LOT_USAGE';
 
     setChemicals(prev => prev.map(c => {
       if (c.id === chemId) {
@@ -244,27 +212,39 @@ const App: React.FC = () => {
             if (l.id === lotId) {
               currentLotNum = l.lotNumber;
               currentUnit = l.unit;
+              
+              if (action === 'UPDATE_DATES' && extra) {
+                logAction = 'UPDATE_DATES';
+                details = 'Cập nhật thông tin ngày tháng (Nhập/Mở nắp)';
+                return { ...l, ...extra };
+              }
+              
               if (action === 'OPEN') {
-                details = `Mở nắp hóa chất`;
-                return { ...l, openedDate: today, status: 'IN_USE' as const, paoDays: c.defaultPaoDays };
+                logAction = 'OPEN_LOT';
+                details = `Mở nắp hóa chất (${targetDate})`;
+                return { ...l, openedDate: targetDate, status: 'IN_USE' as const, paoDays: c.defaultPaoDays };
               }
               if (action === 'USAGE' && amount) {
+                logAction = 'LOT_USAGE';
                 const newQty = Math.max(0, l.quantity - amount);
-                details = `Sử dụng ${amount} ${l.unit}`;
-                if (newQty === 0) return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: today };
-                return { ...l, quantity: newQty, lastUsedDate: today };
+                details = `Sử dụng ${amount} ${l.unit} vào ngày ${targetDate}`;
+                if (newQty === 0) return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: targetDate };
+                return { ...l, quantity: newQty, lastUsedDate: targetDate };
               }
               if (action === 'STOCK_IN' && amount) {
-                details = `Nhập thêm ${amount} ${l.unit}`;
-                return { ...l, quantity: l.quantity + amount, lastUsedDate: today };
+                logAction = 'LOT_STOCK_IN';
+                details = `Nhập thêm ${amount} ${l.unit} vào ngày ${targetDate}`;
+                return { ...l, quantity: l.quantity + amount, lastUsedDate: targetDate };
               }
               if (action === 'DISPOSE') {
-                details = `Chuyển sang khu vực thanh lý`;
+                logAction = 'STATUS_CHANGE';
+                details = `Chuyển sang khu vực thanh lý (${targetDate})`;
                 return { ...l, status: 'DISPOSED' as const };
               }
               if (action === 'CONSUME_ALL') {
-                details = `Xác nhận dùng hết`;
-                return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: today };
+                logAction = 'CONSUME_ALL';
+                details = `Xác nhận dùng hết (${targetDate})`;
+                return { ...l, quantity: 0, status: 'CONSUMED' as const, lastUsedDate: targetDate };
               }
             }
             return l;
@@ -274,10 +254,11 @@ const App: React.FC = () => {
       return c;
     }));
 
-    addLog('LOT_USAGE', lotId, details, currentChemName, currentLotNum, amount, currentUnit);
+    addLog(logAction, lotId, details, currentChemName, currentLotNum, amount, currentUnit, customDate ? new Date(customDate).toISOString() : undefined);
   };
 
   const handleAddLot = (chemId: string, newLot: ChemicalLot) => {
+    if (currentUser?.role === UserRole.VIEWER) return;
     saveToHistory();
     const chem = chemicals.find(c => c.id === chemId);
     setChemicals(prev => prev.map(c => {
@@ -289,6 +270,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveChemical = (chemical: Chemical) => {
+    if (currentUser?.role === UserRole.VIEWER) return;
     saveToHistory();
     if (editingChemical) {
       setChemicals(prev => prev.map(c => c.id === chemical.id ? chemical : c));
@@ -303,15 +285,19 @@ const App: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
+    if (currentUser?.role !== UserRole.ADMIN) {
+      showToast('Chỉ Quản trị viên mới có quyền xóa!', 'warning');
+      return;
+    }
+    if (!confirm('Bạn có chắc chắn muốn xóa hóa chất này khỏi hệ thống?')) return;
     saveToHistory();
     const chem = chemicals.find(c => c.id === id);
     setChemicals(prev => prev.filter(c => c.id !== id));
     addLog('DELETE', id, 'Xóa hóa chất', chem?.name);
   };
 
-  // Auth Guard
   if (!currentUser) {
-    return <Login onLogin={handleLogin} />;
+    return <Login onLogin={handleLogin} users={users} onUpdateUsers={handleUpdateUsers} />;
   }
 
   return (
@@ -320,14 +306,8 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-auto">
         <Header user={currentUser} onLogout={handleLogout} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
         
-        {/* Actions Floating */}
         <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end no-print">
-             {hasUnsavedChanges && (
-                <button onClick={handleSaveData} className="bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 text-xs font-black hover:bg-emerald-700 transition-all border border-emerald-400 group animate-bounce-subtle">
-                  <i className="fas fa-save"></i> LƯU THAY ĐỔI
-                </button>
-             )}
-             {history.length > 0 && (
+             {history.length > 0 && currentUser.role !== UserRole.VIEWER && (
                 <button onClick={handleUndo} className="bg-slate-800 text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-bold hover:bg-slate-700 transition-all">
                   <i className="fas fa-undo"></i> Hoàn tác
                 </button>
@@ -353,7 +333,7 @@ const App: React.FC = () => {
                     <option value="All">Tất cả danh mục</option>
                     {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
-                  {activeTab === 'inventory' && currentUser.role === UserRole.ADMIN && (
+                  {activeTab === 'inventory' && currentUser.role !== UserRole.VIEWER && (
                     <button onClick={() => { setInitialFormStatus('RESERVED'); setShowForm(true); }} className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 font-bold shadow-md transition-all">
                       <i className="fas fa-plus mr-2"></i>Thêm hóa chất
                     </button>
@@ -377,33 +357,36 @@ const App: React.FC = () => {
             </>
           )}
 
+          {activeTab === 'procurement' && (
+            <ProcurementSection chemicals={chemicals} />
+          )}
+
           {activeTab === 'system' && currentUser.role === UserRole.ADMIN && (
             <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in duration-500 max-w-4xl mx-auto">
                <div className="bg-slate-900 p-8 text-white">
                   <h1 className="text-3xl font-black flex items-center gap-4">
                      <i className="fas fa-cogs text-indigo-400"></i> Quản trị Hệ thống
                   </h1>
-                  <p className="text-slate-400 mt-2 font-medium">Sao lưu và bảo trì dữ liệu cục bộ cho máy tính công ty.</p>
+                  <p className="text-slate-400 mt-2 font-medium">Quản lý cơ sở dữ liệu và bảo mật.</p>
                </div>
                <div className="p-10 space-y-12">
                   <section>
-                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">Bảo trì dữ liệu</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 group hover:border-indigo-300 transition-all">
-                           <h4 className="font-black text-indigo-900 mb-2">Sao lưu dữ liệu</h4>
-                           <p className="text-xs text-indigo-600 mb-6 font-medium">Xuất toàn bộ kho hóa chất và nhật ký ra file JSON.</p>
-                           <button onClick={handleExportBackup} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm hover:bg-indigo-700 transition-all shadow-sm">
-                              TẢI FILE SAO LƯU (.JSON)
-                           </button>
-                        </div>
-                        <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 group hover:border-amber-300 transition-all">
-                           <h4 className="font-black text-amber-900 mb-2">Khôi phục hệ thống</h4>
-                           <p className="text-xs text-amber-600 mb-6 font-medium">Sử dụng file JSON để ghi đè dữ liệu hiện tại.</p>
-                           <input type="file" ref={fileInputRef} onChange={handleImportBackup} className="hidden" accept=".json" />
-                           <button onClick={() => fileInputRef.current?.click()} className="w-full bg-amber-600 text-white py-3 rounded-xl font-black text-sm hover:bg-amber-700 transition-all shadow-sm">
-                              CHỌN FILE KHÔI PHỤC
-                           </button>
-                        </div>
+                     <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6">Quản lý Tài khoản ({users.length})</h3>
+                     <div className="space-y-4">
+                        {users.map(u => (
+                          <div key={u.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                            <div>
+                              <p className="font-bold text-slate-800">{u.fullName} <span className="text-[10px] text-indigo-600 font-black ml-2 uppercase bg-indigo-50 px-2 py-0.5 rounded">{u.role}</span></p>
+                              <p className="text-xs text-slate-500">{u.email} | ID: {u.username}</p>
+                            </div>
+                            {u.role !== UserRole.ADMIN && (
+                              <button 
+                                onClick={() => setUsers(prev => prev.filter(x => x.id !== u.id))}
+                                className="text-red-400 hover:text-red-600 p-2"
+                              ><i className="fas fa-user-minus"></i></button>
+                            )}
+                          </div>
+                        ))}
                      </div>
                   </section>
                </div>
@@ -416,13 +399,6 @@ const App: React.FC = () => {
                    <h1 className="text-2xl font-black text-white flex items-center gap-3">
                       <i className="fas fa-history text-indigo-400"></i> Nhật ký hoạt động
                    </h1>
-                   <div className="flex bg-slate-800 p-1 rounded-xl gap-1">
-                      {['ALL', 'USAGE', 'INVENTORY', 'MASTER'].map(tab => (
-                        <button key={tab} onClick={() => setLogFilter(tab as any)} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${logFilter === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
-                          {tab === 'ALL' ? 'Tất cả' : tab === 'USAGE' ? 'Sử dụng' : tab === 'INVENTORY' ? 'Kho vận' : 'Dữ liệu'}
-                        </button>
-                      ))}
-                   </div>
                 </div>
                 <div className="p-6 overflow-x-auto">
                     <table className="w-full text-left">

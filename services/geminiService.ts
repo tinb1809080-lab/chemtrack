@@ -1,23 +1,20 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-// Initialize AI right before use to ensure the latest API Key
+// Initialize AI right before use to ensure the latest API Key as per guidelines
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
  * Trích xuất JSON từ chuỗi văn bản (hỗ trợ cả Markdown code blocks)
- * Rất quan trọng khi dùng Search Grounding vì AI hay thêm văn bản giải thích.
  */
 function extractJson(text: string) {
   try {
-    // Tìm khối JSON đầu tiên trong chuỗi
     const jsonRegex = /({[\s\S]*?})/;
     const match = text.match(jsonRegex);
     if (match) {
       return JSON.parse(match[1]);
     }
     
-    // Nếu không tìm thấy bằng regex đơn giản, thử tìm trong Markdown block
     const markdownMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
     if (markdownMatch) {
       return JSON.parse(markdownMatch[1]);
@@ -30,7 +27,6 @@ function extractJson(text: string) {
   }
 }
 
-// Search for chemical details from the internet using Google Search tool
 export const searchChemicalInfo = async (query: string) => {
   const ai = getAI();
   const model = 'gemini-3-flash-preview';
@@ -52,13 +48,12 @@ export const searchChemicalInfo = async (query: string) => {
   }`;
 
   try {
+    // Calling generateContent with googleSearch tool to find chemical data
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        // Khi dùng Search Grounding, tránh ép kiểu responseMimeType: "application/json" 
-        // để mô hình có thể trả về cả dữ liệu grounding dẫn nguồn.
       },
     });
 
@@ -76,8 +71,6 @@ export const searchChemicalInfo = async (query: string) => {
     };
   } catch (error: any) {
     console.error("Chemical Search Error:", error);
-    
-    // Kiểm tra lỗi 429 Quota Exceeded
     const errorStr = error?.toString() || "";
     const isQuotaError = errorStr.includes("429") || error?.status === 429 || errorStr.toLowerCase().includes("quota");
     
@@ -95,6 +88,7 @@ export const getSafetyAdvice = async (chemicalName: string, casNumber: string) =
   Include primary hazards, storage compatibility, PPE and emergency first aid. Use a professional tone.`;
 
   try {
+    // Calling generateContent to get expert safety advice
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,

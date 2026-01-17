@@ -30,7 +30,10 @@ const PrintLabelModal: React.FC<PrintLabelModalProps> = ({ chemical, lot, onClos
             <div className="flex justify-between items-start border-b border-black pb-1 mb-1">
               <div className="flex-1">
                 <h2 className="text-sm font-black uppercase leading-tight line-clamp-2">{chemical.name}</h2>
-                <p className="text-[10px] font-mono font-bold">{chemical.formula}</p>
+                <div className="flex gap-2 items-center">
+                  <p className="text-[10px] font-mono font-bold">{chemical.formula}</p>
+                  {lot.packaging && <span className="text-[8px] bg-slate-100 px-1 border border-slate-300 font-black">{lot.packaging}</span>}
+                </div>
               </div>
               <div className="transform scale-[0.6] origin-top-right ml-2">
                  <NFPADiamond rating={chemical.nfpa} size="sm" />

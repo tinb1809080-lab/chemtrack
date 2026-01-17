@@ -1,6 +1,18 @@
 {
   "name": "ChemTrack Pro",
-  "description": "A professional chemical management system for laboratories and warehouses featuring inventory tracking, GHS safety compliance, and AI-powered hazard analysis.",
+  "short_name": "ChemTrack",
+  "description": "Hệ thống quản lý hóa chất chuyên nghiệp, hỗ trợ ngoại tuyến.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3022/3022197.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
   "requestFramePermissions": [
     "camera"
   ]

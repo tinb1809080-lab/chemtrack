@@ -2,8 +2,8 @@
 import React, { useState } from 'react';
 
 interface SidebarProps {
-  activeTab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system';
-  setActiveTab: (tab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system') => void;
+  activeTab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system' | 'procurement';
+  setActiveTab: (tab: 'inventory' | 'consumed' | 'disposal' | 'logs' | 'advisor' | 'system' | 'procurement') => void;
   subTab: string;
   setSubTab: (sub: string) => void;
 }
@@ -21,6 +21,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
         { id: 'solid', label: 'Hóa chất rắn' },
         { id: 'liquid', label: 'Hóa chất lỏng' },
         { id: 'hazardous', label: 'Nguy hiểm cao' }
+      ]
+    },
+    { 
+      id: 'procurement', 
+      label: 'Đề nghị mua hàng', 
+      icon: 'fa-shopping-cart',
+      subs: [
+        { id: 'all', label: 'Sắp hết hàng' }
       ]
     },
     { 
@@ -50,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
   };
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl relative z-20 no-print">
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col hidden md:flex shadow-2xl relative z-20 no-print border-r border-slate-800">
       <div className="p-6 flex items-center space-x-3 border-b border-slate-800">
         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-indigo-500/20">
           <i className="fas fa-shield-virus"></i>
@@ -86,7 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
                 {item.subs.map(sub => (
                   <button
                     key={sub.id}
-                    onClick={() => setSubTab(sub.id)}
+                    onClick={() => { setSubTab(sub.id); setActiveTab(item.id as any); }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
                       subTab === sub.id && activeTab === item.id
                         ? 'text-indigo-400 bg-indigo-400/5'
@@ -107,13 +115,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, subTab, setS
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
           <div className="flex justify-between items-center mb-2">
              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest leading-none">Data Status</p>
-             <span className="text-[10px] font-black text-emerald-400">LOCAL OK</span>
+             <span className="text-[10px] font-black text-emerald-400">OFFLINE OK</span>
           </div>
           <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
             <div className="h-full w-[100%] bg-emerald-500 rounded-full"></div>
           </div>
         </div>
-        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.5.0 - Company Build</p>
+        <p className="text-[9px] text-slate-600 mt-4 text-center font-bold italic">Version 2.6.0 - Pharma Edition</p>
       </div>
     </aside>
   );

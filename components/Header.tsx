@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 
 interface HeaderProps {
@@ -10,10 +10,25 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ user, onLogout, searchQuery, setSearchQuery }) => {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   return (
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-8 sticky top-0 z-10 no-print">
-      <div className="flex-1 max-w-xl">
-        <div className="relative">
+      <div className="flex-1 max-w-xl flex items-center gap-4">
+        <div className="relative flex-1">
           <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
             <i className="fas fa-search"></i>
           </span>
@@ -24,6 +39,11 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout, searchQuery, setSearchQ
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+        </div>
+        
+        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${isOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600 animate-pulse'}`}>
+          <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+          {isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
         </div>
       </div>
 

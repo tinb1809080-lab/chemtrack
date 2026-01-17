@@ -9,6 +9,8 @@ export interface User {
   id: string;
   username: string;
   fullName: string;
+  email: string; 
+  password?: string; 
   role: UserRole;
   avatar?: string;
 }
@@ -30,13 +32,16 @@ export interface ChemicalLot {
   id: string;
   mfgLotNumber: string;
   lotNumber: string;
-  quantity: number;
+  packaging: string; 
+  containerCapacity: number; // Dung tích/Khối lượng mỗi chai/thùng
+  quantity: number; // Tổng lượng tồn kho
   unit: string;
   entryDate: string;
   expiryDate: string;
   openedDate?: string;
   lastUsedDate?: string;
   paoDays?: number;
+  bottleOpeningDates?: {[key: number]: string}; // Ngày mở cho từng chai (index 0, 1, 2...)
   status: 'RESERVED' | 'IN_USE' | 'EXPIRED' | 'CONSUMED' | 'DISPOSED';
 }
 
@@ -63,7 +68,7 @@ export interface AuditLog {
   timestamp: string;
   userId: string;
   userName: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'OPEN_LOT' | 'LOT_USAGE' | 'LOT_STOCK_IN' | 'ADD_LOT' | 'STATUS_CHANGE' | 'CONSUME_ALL';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'OPEN_LOT' | 'LOT_USAGE' | 'LOT_STOCK_IN' | 'ADD_LOT' | 'STATUS_CHANGE' | 'CONSUME_ALL' | 'UPDATE_DATES';
   entityId: string;
   chemicalName?: string;
   lotNumber?: string;
